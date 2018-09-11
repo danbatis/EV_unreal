@@ -23,7 +23,7 @@ AMosquitoCharacter::AMosquitoCharacter()
 
 	GetCapsuleComponent()->OnComponentHit.AddDynamic(this, &AMosquitoCharacter::OnCompHit);
 	*/	
-	OnActorBeginOverlap.AddDynamic(this, &AMosquitoCharacter::OnOverlap);	
+	//OnActorBeginOverlap.AddDynamic(this, &AMosquitoCharacter::OnOverlap);	
 }
 /*
 void AMosquitoCharacter::Recover_Implementation(float RecoverAmount)
@@ -162,7 +162,7 @@ void AMosquitoCharacter::OnOverlap(AActor* MyOverlappedActor, AActor* OtherActor
 	{
 		algoz = Cast<AMyPlayerCharacter>(OtherActor);
 		if (GEngine) {
-			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, "[actorOver] my name: " + GetName() + " hit obj: " + *OtherActor->GetName());
+			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, "[actorOverlap] my name: " + GetName() + " myComponent: " + *MyOverlappedActor->GetName() + " hit obj: " + *OtherActor->GetName());
 			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, FString::Printf(TEXT("[algoz] %d"), algoz->myState));
 		}
 		
@@ -176,7 +176,11 @@ void AMosquitoCharacter::OnOverlap(AActor* MyOverlappedActor, AActor* OtherActor
 
 void AMosquitoCharacter::Stabilize(){
 	myState = idle;
-	myAnimBP->damage = 0;
+	myAnimBP->damage = 0;	
+}
+
+void AMosquitoCharacter::OnActorBeginOverlap(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult){
+	GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, "[actorBeginOverlap] my name: " + GetName() +" myComponent: "+ *OverlappedComp->GetName() + " hit obj: " + *OtherActor->GetName());
 }
 
 /*

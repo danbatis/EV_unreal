@@ -15,6 +15,7 @@
 
 #include "MosquitoCharacter.generated.h"
 
+class AMyPlayerCharacter;
 
 UCLASS()
 class EPIDEMICVECTORS_API AMosquitoCharacter : public ACharacter, public UGameChar
@@ -61,9 +62,6 @@ public:
 	AMyPlayerCharacter* algoz;
 	states myState;	
 
-	UFUNCTION()
-		void OnOverlap(AActor* MyOverlappedActor, AActor* OtherActor);
-	
 	void MyDamage(float DamagePower);
 	void Stabilize();
 	void MoveForward(float Value);
@@ -71,6 +69,12 @@ public:
 	void MoveDir(float Value, EAxis::Type Dir);
 	void OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
 	
+	UFUNCTION()
+		void OnOverlap(AActor* MyOverlappedActor, AActor* OtherActor);
+
+	UFUNCTION()
+		void OnActorBeginOverlap(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
 	/** called when something enters the sphere component */
 	UFUNCTION()
 		void OnOverlapBegin(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);

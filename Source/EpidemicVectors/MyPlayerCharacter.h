@@ -12,8 +12,9 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "Runtime/Engine/Classes/Kismet/KismetMathLibrary.h"
 #include "Engine.h"
-
+#include "MosquitoCharacter.h"
 //#include "Runtime/Engine/Classes/Engine/World.h"
 //#include "Runtime/Engine/Classes/Kismet/GameplayStatics.h"
 //#include "Runtime/Engine/Classes/Components/StaticMeshComponent.h"
@@ -21,6 +22,8 @@
 
 #include "MyPlayerCharacter.generated.h"
 
+//forward declaration
+class AMosquitoCharacter;
 
 //basic node class for the attack tree
 USTRUCT(BlueprintType, Category = "Combat")
@@ -34,10 +37,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat") int leftNode;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat") int rightNode;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat") float coolDown;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat") float advanceAtkValue;
 	FAtkNode* left;
 	FAtkNode* right;
 	
-	FAtkNode() { myAnim = NULL; speed = 2.0f; time2lethal = 0.1f; lethalTime = 0.8f; coolDown = 0.3f; }
+	FAtkNode() { myAnim = NULL; speed = 2.0f; time2lethal = 0.1f; lethalTime = 0.8f; coolDown = 0.3f; advanceAtkValue = 1.0f; }
 };
 
 
@@ -103,40 +107,48 @@ public:
 	bool atk2Hold;
 	float startedHold1;
 	float startedHold2;
-	float mytime;	
-	UPROPERTY(EditAnywhere, Category = Combat)
-		float msgTime;
-	UPROPERTY(EditAnywhere, Category = Combat)
-		float holdTimeMin;
-	UPROPERTY(EditAnywhere, Category = Combat)
-		float holdTimeMax;
+	float mytime;
+	float startReorient;
+	UPROPERTY(EditAnywhere, Category = Combat)float reorientTime;
+	UPROPERTY(EditAnywhere, Category = Combat)float msgTime;
+	UPROPERTY(EditAnywhere, Category = Combat)float holdTimeMin;
+	UPROPERTY(EditAnywhere, Category = Combat)float holdTimeMax;
+	float advanceAtk;
 	int knockDownIndex;
 	int atkIndex;
 	int atkChainIndex;
-		
-	//input buttons
-	FKey atk1Key;//square
-	FKey atk2Key;//triangle
-	FKey hookKey;//right trigger
-	FKey jumpKey;//circle
-	FKey dashKey;//cross
-	FKey shieldKey;//right bumper
-	int shieldKey_i;
-	//input axis
-	FKey horizontalIn;
-	FKey verticalIn;
-	FKey verticalCamIn;
-	FKey horizontalCamIn;
+	
+	UPROPERTY(EditAnywhere, Category = Movement) float normalSpeed;
+	UPROPERTY(EditAnywhere, Category = Movement) float dashSpeed;
+	UPROPERTY(EditAnywhere, Category = Movement) float normalAcel;
+	UPROPERTY(EditAnywhere, Category = Movement) float dashAcel;
 
+	//input buttons
+	UPROPERTY(EditAnywhere, Category = Combat) FKey atk1Key;//square
+	UPROPERTY(EditAnywhere, Category = Combat) FKey atk2Key;//triangle
+	UPROPERTY(EditAnywhere, Category = Combat) FKey hookKey;//right trigger
+	UPROPERTY(EditAnywhere, Category = Combat) FKey jumpKey;//circle
+	UPROPERTY(EditAnywhere, Category = Combat) FKey dashKey;//cross
+	UPROPERTY(EditAnywhere, Category = Combat) FKey shieldKey;//right bumper
+	UPROPERTY(EditAnywhere, Category = Combat) FKey targetLockKey;//left bumper
+	//input axis
+	UPROPERTY(EditAnywhere, Category = Combat) FKey horizontal_L;
+	UPROPERTY(EditAnywhere, Category = Combat) FKey horizontal_R;
+	UPROPERTY(EditAnywhere, Category = Combat) FKey vertical_Up;
+	UPROPERTY(EditAnywhere, Category = Combat) FKey vertical_Down;
+	UPROPERTY(EditAnywhere, Category = Combat) FKey horizontalCam;
+	UPROPERTY(EditAnywhere, Category = Combat) FKey verticalCam;	
+	//knockdown animations
 	UPROPERTY(EditAnywhere, Category = Combat) UAnimSequence *prepSuperHitL;
 	UPROPERTY(EditAnywhere, Category = Combat) UAnimSequence *superHitL;
 	UPROPERTY(EditAnywhere, Category = Combat) UAnimSequence *prepSuperHitR;	
 	UPROPERTY(EditAnywhere, Category = Combat) UAnimSequence *superHitR;
+	//combo variables
 	TArray<FAtkNode> attackChain;
 	bool attackLocked;
+	UPROPERTY(EditAnywhere, Category = Combat) TArray<FAtkNode> attackList;
 
-	UPROPERTY(EditAnywhere, Category = Combat)
-		TArray<FAtkNode> attackList;		
+	TArray<AMosquitoCharacter*> mosquitos;
 	
 private:
 	APlayerController* player;
@@ -159,6 +171,7 @@ private:
 	 * @param Rate	This is a normalized rate, i.e. 1.0 means 100% of desired turn rate
 	 */
 	void LookUpAtRate(float Rate);
+	void Reorient();
 	void LookUp(float Rate);
 	void Attack1Press();
 	void Attack1Release();
@@ -172,8 +185,11 @@ private:
 	void Attack2Release();
 	void StartLethal();
 	void StopLethal();
-	void ResetAttacks();
-	
+	void ResetAttacks();	
+	void Listen4Move();
+	void Listen4Attack();
+	void Advance();
+	void Listen4Look();
 public:
 	/** Returns CameraBoom subobject **/
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
