@@ -24,9 +24,9 @@ class EPIDEMICVECTORS_API AMosquitoCharacter : public ACharacter, public UGameCh
 
 public:
 	// Sets default values for this character's properties
-	AMosquitoCharacter();
-
-	enum states {
+	AMosquitoCharacter(const class FObjectInitializer& ObjectInitializer);
+		
+	enum mosquitoStates {
 		idle,
 		suffering,
 		attacking
@@ -52,6 +52,7 @@ public:
 	//virtual void Recover_Implementation(float RecoverAmount) override;
 	//virtual void Damage_Implementation(float DamagePower) override;
 
+	//collision component to handle the overlaps for the combat
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 		UBoxComponent* collisionCapsule;
 	
@@ -60,9 +61,10 @@ public:
 	FTimerHandle timerHandle;
 	USimpleMosquitoAComm* myAnimBP;
 	AMyPlayerCharacter* algoz;
-	states myState;	
+	mosquitoStates myState;
+	float recoilPortion;
 
-	void MyDamage(float DamagePower);
+	void MyDamage(float DamagePower, FVector AlgozPos);
 	void Stabilize();
 	void MoveForward(float Value);
 	void MoveRight(float Value);
@@ -75,11 +77,11 @@ public:
 	UFUNCTION()
 		void OnActorBeginOverlap(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
-	/** called when something enters the sphere component */
+	/** called when something enters the component */
 	UFUNCTION()
 		void OnOverlapBegin(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
-	/** called when something leaves the sphere component */
+	/** called when something leaves the component */
 	UFUNCTION()
 		void OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 

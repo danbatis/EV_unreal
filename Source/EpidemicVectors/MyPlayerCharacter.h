@@ -16,9 +16,10 @@
 #include "Engine.h"
 #include "MosquitoCharacter.h"
 //#include "Runtime/Engine/Classes/Engine/World.h"
-//#include "Runtime/Engine/Classes/Kismet/GameplayStatics.h"
+#include "Runtime/Engine/Classes/Kismet/GameplayStatics.h"
 //#include "Runtime/Engine/Classes/Components/StaticMeshComponent.h"
 #include "AnimComm.h"
+#include "Perception/PawnSensingComponent.h"
 
 #include "MyPlayerCharacter.generated.h"
 
@@ -55,7 +56,8 @@ public:
 	enum PlayerStates {
 		idle,
 		suffering,
-		attacking
+		attacking,
+		hookFlying
 	};	
 
 	// Sets default values for this character's properties
@@ -103,6 +105,7 @@ public:
 	FTimerHandle timerHandle;
 	PlayerStates myState;
 	bool inAir;
+	bool flying;
 	bool atk1Hold;
 	bool atk2Hold;
 	float startedHold1;
@@ -123,6 +126,12 @@ public:
 	UPROPERTY(EditAnywhere, Category = Movement) float normalAcel;
 	UPROPERTY(EditAnywhere, Category = Movement) float dashAcel;
 
+	UPROPERTY(EditAnywhere, Category = Combat) float throwPower;
+	UPROPERTY(EditAnywhere, Category = Combat) float aimTimeDilation;
+	UPROPERTY(EditAnywhere, Category = Combat) float disengageHookDist;
+	UPROPERTY(EditAnywhere, Category = Combat) float normalAirCtrl;
+	UPROPERTY(EditAnywhere, Category = Combat) float dashAirCtrl;
+
 	//input buttons
 	UPROPERTY(EditAnywhere, Category = Combat) FKey atk1Key;//square
 	UPROPERTY(EditAnywhere, Category = Combat) FKey atk2Key;//triangle
@@ -130,6 +139,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat) FKey jumpKey;//circle
 	UPROPERTY(EditAnywhere, Category = Combat) FKey dashKey;//cross
 	UPROPERTY(EditAnywhere, Category = Combat) FKey shieldKey;//right bumper
+	UPROPERTY(EditAnywhere, Category = Combat) FKey grabKey;//left trigger
 	UPROPERTY(EditAnywhere, Category = Combat) FKey targetLockKey;//left bumper
 	//input axis
 	UPROPERTY(EditAnywhere, Category = Combat) FKey horizontal_L;
@@ -147,8 +157,22 @@ public:
 	TArray<FAtkNode> attackChain;
 	bool attackLocked;
 	UPROPERTY(EditAnywhere, Category = Combat) TArray<FAtkNode> attackList;
-
+	//to instantiate new mosquitos
+	UPROPERTY(EditAnywhere, Category = Combat) TSubclassOf<class AMosquitoCharacter> MosquitoClass;
+	//to store all mosquitos in scene
 	TArray<AMosquitoCharacter*> mosquitos;
+
+	float grabForth;
+	float grabRight;
+	float grabHeight;
+
+	/*A Pawn Noise Emitter component which is used in order to emit the sounds to nearby AIs*/
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
+		UPawnNoiseEmitterComponent* PawnNoiseEmitterComp;
+
+	/*The function that is going to play the sound and report it to our game*/
+	UFUNCTION(BlueprintCallable, Category = AI)
+		void ReportNoise(USoundBase* SoundToPlay, float Volume);
 	
 private:
 	APlayerController* player;

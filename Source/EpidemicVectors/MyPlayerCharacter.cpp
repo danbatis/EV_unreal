@@ -16,9 +16,10 @@ AMyPlayerCharacter::AMyPlayerCharacter()
 	GetCapsuleComponent()->BodyInstance.SetCollisionProfileName("BlockAllDynamic");
 	*/
 	collisionCapsule = CreateDefaultSubobject<UCapsuleComponent>(TEXT("collisionCapsule"));
+	collisionCapsule->AttachTo(RootComponent);
 
-	//collisionCapsule->OnComponentHit.AddDynamic(this, &AMyPlayerCharacter::OnCompHit);
-	//collisionCapsule->OnComponentBeginOverlap.AddDynamic(this, &AMyPlayerCharacter::OnBeginOverlap);
+	collisionCapsule->OnComponentHit.AddDynamic(this, &AMyPlayerCharacter::OnCompHit);
+	collisionCapsule->OnComponentBeginOverlap.AddDynamic(this, &AMyPlayerCharacter::OnBeginOverlap);
 
 	// Set as root component
 	//RootComponent = GetCapsuleComponent();
@@ -51,7 +52,9 @@ AMyPlayerCharacter::AMyPlayerCharacter()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
 	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
-	
+
+	//the noise emitter for our AI
+	PawnNoiseEmitterComp = CreateDefaultSubobject<UPawnNoiseEmitterComponent>(TEXT("PawnNoiseEmitterComp"));
 }
 
 // Called when the game starts or when spawned
@@ -141,7 +144,7 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 	
 	mytime += DeltaTime;
-	inAir = GetMovementComponent()->IsFalling();
+	inAir = GetMovementComponent()->IsFalling() || flying;
 	if(inAir){
 		GEngine->AddOnScreenDebugMessage(-1, 0.1f, FColor::Blue, TEXT("falling..."));
 	}
@@ -168,19 +171,137 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 		GetCharacterMovement()->MaxWalkSpeed = dashSpeed;
 		GetCharacterMovement()->MaxAcceleration = dashAcel;
 		GetCharacterMovement()->bOrientRotationToMovement = false;
-		GetCharacterMovement()->AirControl = 1.0f;
+		GetCharacterMovement()->AirControl = dashAirCtrl;
 	}
 	else {
 		GetCharacterMovement()->MaxWalkSpeed = normalSpeed;
 		GetCharacterMovement()->MaxAcceleration = normalAcel;
 		GetCharacterMovement()->bOrientRotationToMovement = true;
-		GetCharacterMovement()->AirControl = .2f;
+		GetCharacterMovement()->AirControl = normalAirCtrl;
 	}		
 
 	switch (myState){
 		case idle:
 			GetCharacterMovement()->GravityScale = 1.0f;
 			
+			if(player->WasInputKeyJustPressed(EKeys::T)){
+				const FVector SpawnPosition = GetActorLocation() + GetActorForwardVector()*50.0f;
+				FActorSpawnParameters SpawnInfo;
+								
+				AMosquitoCharacter* newMosquito;
+				if (player->IsInputKeyDown(EKeys::B)) {
+					// spawn new mosquito using blueprint
+					newMosquito = GWorld->SpawnActor<AMosquitoCharacter>(MosquitoClass, SpawnPosition, FRotator::ZeroRotator, SpawnInfo);
+					
+				}
+				else {
+					//newMosquito = GWorld->SpawnActor<AMosquitoCharacter>(mosquitos[0]->GetClass(), SpawnPosition, FRotator::ZeroRotator, SpawnInfo);
+					// spawn new mosquito without blueprint
+					newMosquito = GWorld->SpawnActor<AMosquitoCharacter>(AMosquitoCharacter::StaticClass(), SpawnPosition, FRotator::ZeroRotator, SpawnInfo);					
+				}
+
+				if (newMosquito != NULL)
+				{
+					//newMosquito->GetCapsuleComponent()->SetMobility(EComponentMobility::Movable);
+					newMosquito->GetCharacterMovement()->BrakingFriction = 2.0f;
+					newMosquito->GetCharacterMovement()->MovementMode = MOVE_Falling;
+					newMosquito->GetCharacterMovement()->VisualizeMovement();
+					newMosquito->GetCharacterMovement()->Activate(true);
+					
+					// Actor has been spawned in the level
+					UE_LOG(LogTemp, Warning, TEXT("MovementMode: %d"), newMosquito->GetCharacterMovement()->MovementMode.GetValue());
+					UE_LOG(LogTemp, Warning, TEXT("GravityScale: %f"), newMosquito->GetCharacterMovement()->GravityScale);
+					UE_LOG(LogTemp, Warning, TEXT("MaxAceleration: %f"), newMosquito->GetCharacterMovement()->MaxAcceleration);
+					UE_LOG(LogTemp, Warning, TEXT("Mass: %f"), newMosquito->GetCharacterMovement()->Mass);
+					UE_LOG(LogTemp, Warning, TEXT("LandMode: %d"), (int)newMosquito->GetCharacterMovement()->DefaultLandMovementMode);
+					UE_LOG(LogTemp, Warning, TEXT("Braking friction: %f"), newMosquito->GetCharacterMovement()->BrakingFriction);
+					if (newMosquito->GetCharacterMovement()->bJustTeleported) {
+						UE_LOG(LogTemp, Warning, TEXT("Just teleported"));
+					}
+					else {
+						UE_LOG(LogTemp, Warning, TEXT("Did not just teleport"));
+					}
+					if (newMosquito->GetCharacterMovement()->bEnableScopedMovementUpdates) {
+						UE_LOG(LogTemp, Warning, TEXT("enable scoped movement updates"));
+					}
+					else { UE_LOG(LogTemp, Warning, TEXT("does not enable scoped movment")); }
+					
+					UE_LOG(LogTemp, Warning, TEXT("Max walk speed: %f"), newMosquito->GetCharacterMovement()->MaxWalkSpeed);
+					if (newMosquito->GetCharacterMovement()->bAutoRegisterUpdatedComponent) {
+						UE_LOG(LogTemp, Warning, TEXT("charmove auto register update comp"));
+					}
+					else {
+						UE_LOG(LogTemp, Warning, TEXT("charmove does not auto register update"));
+					}
+					if (newMosquito->GetCharacterMovement()->bAutoActivate) {
+						UE_LOG(LogTemp, Warning, TEXT("character movement auto activates"));
+					}
+					else {
+						UE_LOG(LogTemp, Warning, TEXT("character movement does not auto activate"));
+					}
+
+					GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Yellow, FString::Printf(TEXT("new mosquito placed, movemode: %d , should be fall"), newMosquito->GetCharacterMovement()->MovementMode.GetValue()));
+					
+					DrawDebugLine(GetWorld(), GetActorLocation(), SpawnPosition, FColor(0, 255, 0), true, -1, 0, 5.0);
+				}
+				else
+				{
+					// Failed to spawn actor!
+					GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Red, TEXT("failed to place new mosquito!"));
+				}
+			}
+			
+
+			if (player->WasInputKeyJustPressed(grabKey)){
+				//grab last mosquito
+				FVector mosquitoTarget = mosquitos[mosquitos.Num() - 1]->GetActorLocation() - GetActorLocation();				
+				const FRotator Rotation = Controller->GetControlRotation();
+				// get forward vector
+				FVector forthVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::X);
+				FVector rightVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::Y);
+				FVector upVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::Z);
+
+				grabForth = mosquitoTarget.ProjectOnTo(forthVec).Size();
+				grabRight = mosquitoTarget.ProjectOnTo(rightVec).Size();
+				grabHeight = mosquitoTarget.ProjectOnTo(upVec).Size();
+			}
+			if (player->IsInputKeyDown(grabKey)){
+				const FRotator Rotation = Controller->GetControlRotation();
+				FVector forthVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::X);
+				FVector rightVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::Y);
+				FVector upVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::Z);
+
+				//hold last mosquito
+				FVector mosquitoPos = grabForth* forthVec + grabRight* rightVec + grabHeight* upVec+GetActorLocation();
+				mosquitos[mosquitos.Num() - 1]->SetActorLocation(mosquitoPos);
+				DrawDebugLine(GetWorld(), GetActorLocation(), GetActorLocation() + forthVec*throwPower, FColor(255, 255, 0), true, 0.1f, 0, 5.0);
+			}
+			if (player->WasInputKeyJustReleased(grabKey)){
+				//throw him
+
+				const FRotator Rotation = Controller->GetControlRotation();
+				FVector forthVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::X);
+				FVector rightVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::Y);
+				FVector upVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::Z);
+
+				mosquitos[mosquitos.Num() - 1]->GetCharacterMovement()->Velocity = throwPower * forthVec;
+
+			}
+
+			if(player->WasInputKeyJustPressed(hookKey)){
+				//freeze time
+				UGameplayStatics::SetGlobalTimeDilation(GetWorld(), aimTimeDilation);
+			}
+			if(player->WasInputKeyJustReleased(hookKey)){
+				//release time and change state
+				UGameplayStatics::SetGlobalTimeDilation(GetWorld(), 1.0f);
+				
+				//play animation to pull
+
+
+				myState = hookFlying;
+			}
+
 			Listen4Attack();
 			Listen4Move();
 			Listen4Look();
@@ -191,7 +312,36 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 			Listen4Attack();
 			Listen4Look();
 			Reorient();
-			break;	
+			break;
+		case hookFlying:
+			FVector targetDir = mosquitos[mosquitos.Num() - 1]->GetActorLocation() - GetActorLocation();
+			float distToTarget = targetDir.Size();
+			if( distToTarget < disengageHookDist)
+			{
+				flying = false;
+				GetCharacterMovement()->MovementMode = MOVE_Walking;
+				GetCharacterMovement()->MaxWalkSpeed = normalSpeed;
+				GetCharacterMovement()->AirControl = normalAirCtrl;
+				GetCharacterMovement()->GravityScale = 1.0f;
+				myState = idle;
+			}
+			else
+			{
+				const FRotator Rotation = Controller->GetControlRotation();
+				// get forward vector
+				FVector forthVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::X);
+
+				flying = true;
+				GetCharacterMovement()->MovementMode = MOVE_Flying;
+				GetCharacterMovement()->GravityScale = 0.0f;
+				GetCharacterMovement()->MaxWalkSpeed = dashSpeed;
+				//AddMovementInput(targetDir, 1.0f);
+				GetCharacterMovement()->Velocity = targetDir;
+				//GetCharacterMovement()->Velocity = forthVec * throwPower;
+				GetCharacterMovement()->AirControl = 0.0f;
+			}
+			Listen4Look();
+			break;
 	}	
 }
 
@@ -249,19 +399,20 @@ void AMyPlayerCharacter::Reorient(){
 		startReorient = mytime;
 	}
 	if (player->IsInputKeyDown(targetLockKey)) {
-		const FRotator Rotation = Controller->GetControlRotation();
-		// get forward vector
-		FVector forthVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::X);
-		
+
 		FVector myLoc = GetActorLocation();
-		FVector mosquitoLoc = mosquitos[0]->GetActorLocation();
-		FVector targetDir = mosquitoLoc-myLoc;
-		FVector forthLoc = myLoc + (mosquitoLoc-myLoc).Size()*forthVec;
+		FVector targetLoc = mosquitos[0]->GetActorLocation();
+
+		// get forward vector
+		const FRotator Rotation = Controller->GetControlRotation();		
+		FVector forthVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::X);
+					
+		FVector forthLoc = myLoc + (targetLoc - myLoc).Size()*forthVec;
 		
-		//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, FString::Printf(TEXT("size vector: %f"), (mosquitoLoc - myLoc).Size()));
+		//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, FString::Printf(TEXT("size vector: %f"), (targetLoc - myLoc).Size()));
 
 		GetCharacterMovement()->bOrientRotationToMovement = false;
-		FRotator lookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, mosquitoLoc);
+		FRotator lookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, targetLoc);
 		const FRotator lookToTargetYaw(0, lookToTarget.Yaw, 0);
 		SetActorRotation(lookToTargetYaw);
 		
@@ -278,7 +429,7 @@ void AMyPlayerCharacter::Reorient(){
 			if (reorientGain >= 1.0f)
 				startReorient = 0.0f;
 			
-			FVector immediateTarget = forthLoc+(mosquitoLoc - forthLoc)*reorientGain;
+			FVector immediateTarget = forthLoc+(targetLoc - forthLoc)*reorientGain;
 
 			DrawDebugLine(GetWorld(), myLoc, myLoc + forthVec * 100.0f *reorientGain, FColor(255, 0, 0), true, -1, 0, 5.0);
 			DrawDebugLine(GetWorld(), myLoc, immediateTarget, FColor(0, 255, 0), true, -1, 0, 5.0);
@@ -292,6 +443,20 @@ void AMyPlayerCharacter::Reorient(){
 	else {
 		GetCharacterMovement()->bOrientRotationToMovement = true;
 	}
+}
+void AMyPlayerCharacter::ReportNoise(USoundBase* SoundToPlay, float Volume)
+{
+	//If we have a valid sound to play, play the sound and
+	//report it to our game
+	if (SoundToPlay)
+	{
+		//Play the actual sound
+		UGameplayStatics::PlaySoundAtLocation(GetWorld(), SoundToPlay, GetActorLocation(), Volume);
+
+		//Report that we've played a sound with a certain volume in a specific location
+		MakeNoise(Volume, this, GetActorLocation());
+	}
+
 }
 void AMyPlayerCharacter::MoveForward(float Value)
 {
@@ -619,7 +784,7 @@ void AMyPlayerCharacter::Advance(){
 	if ((Controller != NULL) && (advanceAtk != 0.0f))
 	{
 		// get forward vector
-		const FVector Direction = GetActorForwardVector();			
+		const FVector Direction = GetActorForwardVector();	
 		AddMovementInput(Direction, advanceAtk);
 	}
 }
@@ -628,12 +793,12 @@ void AMyPlayerCharacter::OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherAc
 	if(OtherActor!=NULL && OtherActor!=this && OtherComp != NULL){
 		if(GEngine){
 			//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Red, FString::Printf(TEXT("I %s just hit: %s"), GetName(), *OtherActor->GetName()));
-			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Orange, "[ComponentHit] my name: " + GetName()+"hit obj: "+ *OtherActor->GetName());
+			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Orange, "[player ComponentHit] my name: " + GetName()+"hit obj: "+ *OtherActor->GetName());
 		}
 	}
 }
 
 void AMyPlayerCharacter::OnBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Green, "[OverlapBegin] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
+	GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Green, "[player OverlapBegin] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
 }

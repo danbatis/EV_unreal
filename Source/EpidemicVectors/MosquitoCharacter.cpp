@@ -4,26 +4,25 @@
 
 
 // Sets default values
-AMosquitoCharacter::AMosquitoCharacter()
+AMosquitoCharacter::AMosquitoCharacter(const class FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
 {
  	// Set this character to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
-	
-	
+		
 	collisionCapsule = CreateDefaultSubobject<UBoxComponent>(TEXT("collisionCapsule"));
-	//collisionCapsule->SetNotifyRigidBodyCollision(true);
-	/*
-	collisionCapsule->OnComponentHit.AddDynamic(this, &AMosquitoCharacter::OnCompHit);
-	collisionCapsule->OnComponentBeginOverlap.AddDynamic(this, &AMosquitoCharacter::OnBeginOverlap);
-	collisionCapsule->OnComponentEndOverlap.AddDynamic(this, &AMosquitoCharacter::OnOverlapEnd);
-	
-	GetMesh()->OnComponentHit.AddDynamic(this, &AMosquitoCharacter::OnCompHit);
-	GetMesh()->OnComponentBeginOverlap.AddDynamic(this, &AMosquitoCharacter::OnBeginOverlap);
-	GetMesh()->OnComponentEndOverlap.AddDynamic(this, &AMosquitoCharacter::OnOverlapEnd);
+	//Don't collide with camera to keep 3rd person camera at position when obstructed by this char
+	GetMesh()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+	collisionCapsule->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 
-	GetCapsuleComponent()->OnComponentHit.AddDynamic(this, &AMosquitoCharacter::OnCompHit);
-	*/	
-	//OnActorBeginOverlap.AddDynamic(this, &AMosquitoCharacter::OnOverlap);	
+	//collisionCapsule->AttachTo(RootComponent);
+	collisionCapsule->SetupAttachment(GetCapsuleComponent());
+	collisionCapsule->SetRelativeLocation(FVector(0.0f, 0.0f, 0.0f));
+	
+	collisionCapsule->OnComponentHit.AddDynamic(this, &AMosquitoCharacter::OnCompHit);
+	collisionCapsule->OnComponentBeginOverlap.AddDynamic(this, &AMosquitoCharacter::OnOverlapBegin);
+	collisionCapsule->OnComponentEndOverlap.AddDynamic(this, &AMosquitoCharacter::OnOverlapEnd);
 }
 /*
 void AMosquitoCharacter::Recover_Implementation(float RecoverAmount)
@@ -47,9 +46,10 @@ void AMosquitoCharacter::Damage_Implementation(float DamagePower)
 void AMosquitoCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-
+	
 	life = 90.0f;
 	maxLife = 100.0f;
+	/*
 	if (GEngine) {
 		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow, FString::Printf(TEXT("old life: %f"), life));
 	}
@@ -60,6 +60,7 @@ void AMosquitoCharacter::BeginPlay()
 	if (GEngine) {
 		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Yellow, FString::Printf(TEXT("new life: %f"), life));
 	}
+	*/
 
 	myAnimBP = Cast<USimpleMosquitoAComm>(GetMesh()->GetAnimInstance());
 	myState = idle;
@@ -69,19 +70,30 @@ void AMosquitoCharacter::BeginPlay()
 void AMosquitoCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);	
+
+	switch (myState) {
+	case idle:
+		break;
+	case suffering:
+		const FVector Direction = GetActorForwardVector();
+		AddMovementInput(-Direction, recoilPortion);
+		break;
+	}
 }
 
 // Called to bind functionality to input
 void AMosquitoCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
+	check(PlayerInputComponent);
+	UE_LOG(LogTemp, Warning, TEXT("Mosquito character setup function."));
 	//Super::SetupPlayerInputComponent(PlayerInputComponent);
-	
+	/*
 	check(PlayerInputComponent);
 	PlayerInputComponent->BindAxis("MoveForward", this, &AMosquitoCharacter::MoveForward);
 	PlayerInputComponent->BindAxis("MoveRight", this, &AMosquitoCharacter::MoveRight);
 	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
 	PlayerInputComponent->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
-	
+	*/	
 }
 
 void AMosquitoCharacter::MoveForward(float Value)
@@ -113,7 +125,7 @@ void AMosquitoCharacter::OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherAc
 	if (OtherActor != NULL && OtherActor != this && OtherComp != NULL) {
 		if (GEngine) {
 			//GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, FString::Printf(TEXT("I %s just hit: %s"), GetName(), *OtherActor->GetName()));
-			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Orange, "[ComponentHit] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
+			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::White, "[ComponentHit] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
 		}
 	}
 }
@@ -123,14 +135,22 @@ void AMosquitoCharacter::OnOverlapEnd(UPrimitiveComponent* OverlappedComponent, 
 {	
 	if (OtherActor && (OtherActor != this) && OtherComp)
 	{
+		
+		algoz = Cast<AMyPlayerCharacter>(OtherActor);
+
+		if (myState != suffering) {
+			MyDamage(10.0f, algoz->GetActorLocation());
+		}
+				
 		if (GEngine) {
 			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Black, "[OverlapEnd] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
+			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, FString::Printf(TEXT("[algoz] %d"), algoz->myState));
 		}
 	}
 }
 
 
-void AMosquitoCharacter::OnOverlapBegin(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+void AMosquitoCharacter::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
 	if (OtherActor && (OtherActor != this) && OtherComp)
 	{
@@ -138,22 +158,6 @@ void AMosquitoCharacter::OnOverlapBegin(class UPrimitiveComponent* OverlappedCom
 			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Green, "[OverlapBegin] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
 		}
 	}
-}
-
-void AMosquitoCharacter::MyDamage(float DamagePower) {
-	if (GEngine) {
-		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Blue, "[entered MyDamage] ");
-	}
-	myState = suffering;
-	//play damage sound
-	Damage(DamagePower);
-	//play damage animation
-	if(FMath::RandRange(0,10) < 5)
-	myAnimBP->damage = 1;
-	else
-	myAnimBP->damage = 2;
-	//start stabilize timer
-	GetWorldTimerManager().SetTimer(timerHandle, this, &AMosquitoCharacter::Stabilize, damageTime, false);
 }
 
 void AMosquitoCharacter::OnOverlap(AActor* MyOverlappedActor, AActor* OtherActor)
@@ -168,15 +172,39 @@ void AMosquitoCharacter::OnOverlap(AActor* MyOverlappedActor, AActor* OtherActor
 		
 		
 		if (myState != suffering) {
-			MyDamage(10.0f);
+			MyDamage(10.0f, algoz->GetActorLocation());
 		}
 		
 	}
 }
 
+void AMosquitoCharacter::MyDamage(float DamagePower, FVector AlgozPos) {
+	if (GEngine) {
+		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Blue, "[entered MyDamage] ");
+	}
+
+	//look to your algoz
+	FRotator lookToAlgoz = UKismetMathLibrary::FindLookAtRotation(GetActorLocation(), AlgozPos);
+	const FRotator lookToAlgozYaw(0, lookToAlgoz.Yaw, 0);
+	SetActorRotation(lookToAlgozYaw);
+
+	recoilPortion = 1.0f;
+	myState = suffering;
+	//play damage sound
+	Damage(DamagePower);
+	//play damage animation
+	if (FMath::RandRange(0, 10) < 5)
+		myAnimBP->damage = 1;
+	else
+		myAnimBP->damage = 2;
+	//start stabilize timer
+	GetWorldTimerManager().SetTimer(timerHandle, this, &AMosquitoCharacter::Stabilize, damageTime, false);
+}
+
 void AMosquitoCharacter::Stabilize(){
 	myState = idle;
-	myAnimBP->damage = 0;	
+	myAnimBP->damage = 0;
+	recoilPortion = 0.0f;
 }
 
 void AMosquitoCharacter::OnActorBeginOverlap(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult){
