@@ -103,7 +103,8 @@ public:
 	bool lethal;
 	int currentAttack;
 	FTimerHandle timerHandle;
-	PlayerStates myState;
+	PlayerStates mystate;
+	bool updateAtkDir;
 	bool inAir;
 	bool flying;
 	bool atk1Hold;
@@ -159,8 +160,19 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat) TArray<FAtkNode> attackList;
 	//to instantiate new mosquitos
 	UPROPERTY(EditAnywhere, Category = Combat) TSubclassOf<class AMosquitoCharacter> MosquitoClass;
+	UPROPERTY(EditAnywhere, Category = Combat) bool lookInCamDir;
 	//to store all mosquitos in scene
 	TArray<AMosquitoCharacter*> mosquitos;
+
+	UWorld* world;
+	UCharacterMovementComponent *myCharMove;
+	FRotator myRotation;
+	FRotator YawRotation;
+	float vertIn;
+	float horIn;
+	FVector forthVec;
+	FVector rightVec;
+	FVector myVel;
 
 	float grabForth;
 	float grabRight;
@@ -178,6 +190,9 @@ private:
 	APlayerController* player;
 	FAtkNode* atkWalker;
 	
+	INT32 width, height;
+	FVector2D targetScreenPos;
+
 	/** Called for forwards/backward input */
 	void MoveForward(float Value);
 
@@ -209,11 +224,14 @@ private:
 	void Attack2Release();
 	void StartLethal();
 	void StopLethal();
-	void ResetAttacks();	
+	void ResetAttacks();
+	void Listen4Dash();
 	void Listen4Move();
 	void Listen4Attack();
 	void Advance();
 	void Listen4Look();
+	void Look2Dir(FVector LookDir);
+
 public:
 	/** Returns CameraBoom subobject **/
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }

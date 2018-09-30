@@ -16,14 +16,13 @@ public:
 	UAnimComm();
 	~UAnimComm();
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		float speed;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float speedv;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float speedh;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool inAir;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int attackIndex;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int knockDown;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		bool inAir;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		int attackIndex;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-		int knockDown;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int damageIndex;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int knockDownIndex;
+	
 };

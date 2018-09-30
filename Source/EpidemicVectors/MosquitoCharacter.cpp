@@ -144,7 +144,7 @@ void AMosquitoCharacter::OnOverlapEnd(UPrimitiveComponent* OverlappedComponent, 
 				
 		if (GEngine) {
 			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Black, "[OverlapEnd] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
-			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, FString::Printf(TEXT("[algoz] %d"), algoz->myState));
+			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, FString::Printf(TEXT("[algoz] %d"), algoz->mystate));
 		}
 	}
 }
@@ -167,7 +167,7 @@ void AMosquitoCharacter::OnOverlap(AActor* MyOverlappedActor, AActor* OtherActor
 		algoz = Cast<AMyPlayerCharacter>(OtherActor);
 		if (GEngine) {
 			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, "[actorOverlap] my name: " + GetName() + " myComponent: " + *MyOverlappedActor->GetName() + " hit obj: " + *OtherActor->GetName());
-			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, FString::Printf(TEXT("[algoz] %d"), algoz->myState));
+			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, FString::Printf(TEXT("[algoz] %d"), algoz->mystate));
 		}
 		
 		

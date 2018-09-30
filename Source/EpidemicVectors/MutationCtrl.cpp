@@ -46,7 +46,7 @@ void AMutationCtrl::Possess(APawn* InPawn)
 void AMutationCtrl::StopBT()
 {
 	//Stop current navigation
-	//StopMovement();
+	StopMovement();
 	//Stop the tree
 	BehaviorTreeComp->StopTree();	
 }
@@ -55,7 +55,7 @@ void AMutationCtrl::RestartBT() {
 	BehaviorTreeComp->RestartLogic();
 	BehaviorTreeComp->RestartTree();
 	
-	UE_LOG(LogTemp, Warning, TEXT("[restart]mutation AI state: %s"), *StateName.ToString());
+	//UE_LOG(LogTemp, Warning, TEXT("[restart]mutation AI state: %s"), *StateName.ToString());
 	//DrawDebugLine(GetWorld(), startSpot, startSpot + 1000*FVector::UpVector, FColor(255, 0, 255), true, 0.2f, 0, 5.0);
 }
 

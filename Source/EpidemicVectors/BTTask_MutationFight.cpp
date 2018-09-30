@@ -11,11 +11,11 @@ EBTNodeResult::Type UBTTask_MutationFight::ExecuteTask(UBehaviorTreeComponent& O
 	//AMutationChar* myChar = Cast<AMutationChar>(OwnerComp.GetBlackboardComponent()->GetValue<UBlackboardKeyType_Object>(FName("SelfActor")));
 
 	if (myCtrl->Char) {
-		UE_LOG(LogTemp, Warning, TEXT("[task] Mutation %s fighting"), *OwnerComp.GetName());
+		//UE_LOG(LogTemp, Warning, TEXT("[task MutationFight] Mutation %s fighting"), *OwnerComp.GetName());
 		return EBTNodeResult::Succeeded;
 	}
 	else {
-		UE_LOG(LogTemp, Warning, TEXT("not able to get MutationCharacter"));
+		UE_LOG(LogTemp, Warning, TEXT("[task MutationFight] not able to get MutationCharacter"));
 		return EBTNodeResult::Failed;
 	}
 

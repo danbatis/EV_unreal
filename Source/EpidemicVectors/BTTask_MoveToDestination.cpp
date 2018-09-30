@@ -30,14 +30,15 @@ EBTNodeResult::Type UBTTask_MoveToDestination::ExecuteTask(UBehaviorTreeComponen
 			myCtrl->Char->mystate = MutationStates::flight;
 			myCtrl->Char->GetCharacterMovement()->bOrientRotationToMovement = true;
 			myCtrl->StopBT();
-			UE_LOG(LogTemp, Warning, TEXT("flying to %s"), *BlackboardKey.SelectedKeyName.ToString());
+			movingRes = EPathFollowingRequestResult::Failed;
+			//UE_LOG(LogTemp, Warning, TEXT("flying to %s"), *BlackboardKey.SelectedKeyName.ToString());
 		}
 		else {
 			//move on the floor with pathfinding
 			myCtrl->Char->GetCharacterMovement()->MovementMode = MOVE_Walking;
 			myCtrl->Char->flying = false;
 			movingRes = myCtrl->MoveToLocation(goal, tolerance, true, true, true, true, 0, true);
-			UE_LOG(LogTemp, Warning, TEXT("moving to %s"), *BlackboardKey.SelectedKeyName.ToString());
+			//UE_LOG(LogTemp, Warning, TEXT("moving to %s"), *BlackboardKey.SelectedKeyName.ToString());
 		}
 			
 		DrawDebugLine(GetWorld(), goal, goal+100.0f*FVector::UpVector, FColor(0, 0, 255), true, 0.5f, 0, 5.0);
