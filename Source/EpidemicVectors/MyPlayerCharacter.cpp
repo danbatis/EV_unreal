@@ -112,6 +112,18 @@ void AMyPlayerCharacter::BeginPlay()
 			//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::White, "updated right leg");
 		}
 	}
+	for (int i = 0; i < attackAirList.Num(); ++i) {
+		//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::White, "animName: " + attackTreeL[i].myAnim->GetFName().GetPlainNameString());
+		if (attackAirList[i].leftNode != 0) {
+			attackAirList[i].left = &attackAirList[attackAirList[i].leftNode];
+			//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::White, "updated left leg");
+		}
+		if (attackAirList[i].rightNode != 0) {
+			attackAirList[i].right = &attackAirList[attackAirList[i].rightNode];
+			//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::White, "updated right leg");
+		}
+	}
+	
 	/*	
 	//use walker to show links work
 	//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::White, "leftAttack chain:");
@@ -123,8 +135,7 @@ void AMyPlayerCharacter::BeginPlay()
 		UE_LOG(LogTemp, Warning, TEXT("leftAttack chain : %s"), *atkWalker->myAnim->GetFName().GetPlainNameString());
 	}
 	*/
-	//restarting attack walker
-	atkWalker = &attackList[0];
+	
 
 	//now find enemies	
 	for (TActorIterator<AMosquitoCharacter> it(world, AMosquitoCharacter::StaticClass()); it; ++it)
@@ -151,9 +162,10 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 	
 	mytime += DeltaTime;
 	inAir = GetMovementComponent()->IsFalling() || flying;
-	//if (inAir) {
+	if(!inAir) {
 	//	GEngine->AddOnScreenDebugMessage(-1, 0.1f, FColor::Blue, TEXT("falling..."));
-	//}
+		airAttackLocked = false;
+	}
 	myRotation = Controller->GetControlRotation();
 	YawRotation = FRotator(0, myRotation.Yaw, 0);
 	
@@ -162,7 +174,7 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 	vertIn = player->GetInputAnalogKeyState(vertical_Up) + (-1)*player->GetInputAnalogKeyState(vertical_Down);
 	horIn = player->GetInputAnalogKeyState(horizontal_R) + (-1)*player->GetInputAnalogKeyState(horizontal_L);
 	
-	UE_LOG(LogTemp, Warning, TEXT("player state: %d | attackChain size: %d"), (int)mystate, attackChain.Num());
+	//UE_LOG(LogTemp, Warning, TEXT("player state: %d | attackChain size: %d"), (int)mystate, attackChain.Num());
 	
 	if (player->IsInputKeyDown(EKeys::I)) {
 		player->ProjectWorldLocationToScreen(mosquitos[0]->GetActorLocation(), targetScreenPos, false);
@@ -511,7 +523,21 @@ void AMyPlayerCharacter::KnockDownHit(bool left) {
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::Relax, relaxTime, false);
 }
 void AMyPlayerCharacter::AttackWalk(bool left){
-	if(!attackLocked){
+	if (inAir && airAttackLocked)
+		return;
+	if (!inAir && attackLocked)
+		return;
+		
+		if(attackChain.Num() == 0){
+			if (inAir) {
+				atkWalker = &attackAirList[0];
+			}
+			else {
+				atkWalker = &attackList[0];
+			}
+		}
+		
+		//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Orange, FString::Printf(TEXT("atkIndex: %d atkChainIndex: %d"), atkIndex, atkChainIndex));
 		if (left) {
 			if (atkWalker->left != NULL) {
 				atkWalker = atkWalker->left;
@@ -520,6 +546,7 @@ void AMyPlayerCharacter::AttackWalk(bool left){
 			}
 			else {
 				attackLocked = true;
+				airAttackLocked = true;
 			}
 		}
 		else {
@@ -530,19 +557,21 @@ void AMyPlayerCharacter::AttackWalk(bool left){
 			}
 			else {
 				attackLocked = true;
+				airAttackLocked = true;
 			}
 		}
-	}
+	
 }
 void AMyPlayerCharacter::NextComboHit(){
 	if (atkIndex >= attackChain.Num()){
 		//reset attackChain
+		//atkWalker = &attackList[0];
 		attackChain.Empty();
 		atkIndex = 0;
 		atkChainIndex = 0;
-		//restarting attack walker
-		atkWalker = &attackList[0];
+		airAttackLocked = true;
 		attackLocked = false;
+		
 		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::White, TEXT("reset attack chain"));
 		Relax();
 	}
@@ -571,8 +600,7 @@ void AMyPlayerCharacter::NextComboHit(){
 			advanceAtk = attackChain[atkIndex].advanceAtkValue;
 		}
 		GetMesh()->PlayAnimation(attackChain[atkIndex].myAnim, false);
-		atkChainIndex++;
-		//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::White, TEXT("play attack"));
+		atkChainIndex++;		
 
 		//call timer to start being lethal
 		float time2lethal = attackChain[atkIndex].time2lethal*(attackChain[atkIndex].myAnim->SequenceLength/ attackChain[atkIndex].speed);
@@ -621,9 +649,11 @@ void AMyPlayerCharacter::CancelKnockDownPrepare(bool left){
 }
 
 void AMyPlayerCharacter::ResetAnims(){
-	GetMesh()->SetAnimationMode(EAnimationMode::AnimationBlueprint);
-	myAnimBP = Cast<UAnimComm>(GetMesh()->GetAnimInstance());
-	GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("following the anim blueprint again!"));
+	if (GetMesh()->GetAnimationMode() != EAnimationMode::AnimationBlueprint) {
+		GetMesh()->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+		myAnimBP = Cast<UAnimComm>(GetMesh()->GetAnimInstance());
+		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("following the anim blueprint again!"));
+	}
 }
 
 void AMyPlayerCharacter::ResetAttacks(){

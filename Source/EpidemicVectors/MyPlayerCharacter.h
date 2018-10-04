@@ -57,6 +57,7 @@ public:
 		idle,
 		suffering,
 		attacking,
+		evading,
 		hookFlying
 	};	
 
@@ -101,7 +102,6 @@ public:
 	//combat related variables
 	UAnimComm * myAnimBP;
 	bool lethal;
-	int currentAttack;
 	FTimerHandle timerHandle;
 	PlayerStates mystate;
 	bool updateAtkDir;
@@ -157,7 +157,9 @@ public:
 	//combo variables
 	TArray<FAtkNode> attackChain;
 	bool attackLocked;
+	bool airAttackLocked;
 	UPROPERTY(EditAnywhere, Category = Combat) TArray<FAtkNode> attackList;
+	UPROPERTY(EditAnywhere, Category = Combat) TArray<FAtkNode> attackAirList;
 	//to instantiate new mosquitos
 	UPROPERTY(EditAnywhere, Category = Combat) TSubclassOf<class AMosquitoCharacter> MosquitoClass;
 	UPROPERTY(EditAnywhere, Category = Combat) bool lookInCamDir;

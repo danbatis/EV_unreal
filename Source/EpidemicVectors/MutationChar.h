@@ -24,6 +24,27 @@
 //forward declaration to tell compiler the class exists
 class AMutationCtrl;
 
+USTRUCT(BlueprintType, Category = "MutationAI")
+struct FScanParams {
+	GENERATED_USTRUCT_BODY()
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float timeInOldHead;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float timeToScan;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float angleToScan;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float timeInMidHead;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float timeToLookNewHead;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float timeBeforeTraverse;
+		
+	FScanParams() { 
+		timeInOldHead = 0.0f;
+		timeToScan = 0.0f;
+		angleToScan = 0.0f;
+		timeInMidHead = 0.0f;
+		timeToLookNewHead = 0.0f;
+		timeBeforeTraverse = 0.0f;
+	}
+};
+
 UENUM(BlueprintType) enum class MutationStates:uint8 {
 	idle		UMETA(DisplayName = "idle"),
 	patrol		UMETA(DisplayName = "patrol"),
@@ -31,7 +52,6 @@ UENUM(BlueprintType) enum class MutationStates:uint8 {
 	fight		UMETA(DisplayName = "fight"),
 	escape		UMETA(DisplayName = "escape"),
 	pursuit		UMETA(DisplayName = "pursuit"),	
-	flight		UMETA(DisplayName = "flight"),
 	attacking	UMETA(DisplayName = "attacking"),
 	suffering	UMETA(DisplayName = "suffering"),
 };
@@ -45,6 +65,17 @@ public:
 	// Sets default values for this character's properties
 	AMutationChar();
 
+	enum MoveModes{
+		waitOldHead,
+		scanning,
+		waitAfterScan,
+		turn2NewHead,
+		waitInNewHead,
+		traversing,		
+	};
+	MoveModes moveMode;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") FScanParams investigateParams;
+	
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -70,8 +101,7 @@ public:
 	UFUNCTION() void OnOverlapEnd(class UPrimitiveComponent* OverlappedComp, class AActor* OtherActor, class UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 	
 	UFUNCTION(BlueprintCallable) void NextPatrolPoint();
-	UFUNCTION(BlueprintCallable) void GoNextPatrolPoint();
-	UFUNCTION(BlueprintCallable) void ArrivedAtPatrolPoint();
+	UFUNCTION(BlueprintCallable) void ArrivedAtGoal();
 	UFUNCTION(BlueprintCallable) void MutationFight();
 
 	/*A Behavior Tree reference*/
@@ -85,9 +115,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") TArray<ATargetPoint*> patrolPoints;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float desperateLifeLevel = 10.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float fightRange = 500.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float scanTime = 3.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float scanPatrol_a = 2.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float scanPatrol_b = -1.0f;
+		
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool patrol_in_order;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool patrolBackNforth = false;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") int nextPatrol_i;
@@ -97,8 +125,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") MutationStates mystate;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float strikeDistance = 250.0f;
 	
-	float moveTolerance = 100.0f;
-		
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float moveTolerance = 100.0f;
+	UPROPERTY(BlueprintReadWrite) FScanParams currentScanParams;
 	float mytime;
 	bool flying;
 	bool inAir;
@@ -108,15 +136,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float damageTime = 0.5f;
 	float timeHeard;
 	float timeSeen;
-	float arrivedTime;		
 	int patrol_i;
 	int patrolDir = 1;
 	float distToTarget;
 	AMyPlayerCharacter* myTarget;
 	FVector targetPos;
+	bool newgoalset = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float aggressivity = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float hitPauseDuration = 0.01f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float flyStopFactor = 2.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool startAirborne = false;
 	UPROPERTY(EditAnywhere, Category = "MutationAI") TArray<FAtkNode> attackList;
+
+	void NewGoal(bool Flying);
 
 private:
 	// You can use this to customize various properties about the trace
@@ -125,6 +158,7 @@ private:
 	FHitResult hitres;
 	UWorld* world;
 	UMutationAnimComm * myAnimBP;
+	float startMoveTimer;
 	float advanceAtk;
 	float recoilPortion;
 	void CheckRange();
@@ -137,7 +171,11 @@ private:
 	void CancelAttack();
 	void MyDamage(float DamagePower, FVector AlgozPos);
 	void Death();
+	void DelayedStabilize();
 	void Stabilize();
+	void Navigating();
+	void StartTraverse();
+	
 	FTimerHandle timerHandle;
 	FAtkNode* atkWalker;
 };

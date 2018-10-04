@@ -27,7 +27,7 @@ EBTNodeResult::Type UBTTask_MoveToDestination::ExecuteTask(UBehaviorTreeComponen
 			myCtrl->Char->flying = true;
 
 			//fly straight without pathfinding
-			myCtrl->Char->mystate = MutationStates::flight;
+			//myCtrl->Char->mystate = MutationStates::flight;
 			myCtrl->Char->GetCharacterMovement()->bOrientRotationToMovement = true;
 			myCtrl->StopBT();
 			movingRes = EPathFollowingRequestResult::Failed;
@@ -45,10 +45,7 @@ EBTNodeResult::Type UBTTask_MoveToDestination::ExecuteTask(UBehaviorTreeComponen
 
 		float distToTarget = FVector::Distance(myCtrl->Char->GetActorLocation(), goal);
 
-		if (movingRes == EPathFollowingRequestResult::AlreadyAtGoal) {
-			myCtrl->Char->ArrivedAtPatrolPoint();
-			//OwnerComp.GetBlackboardComponent()->SetValue<UBlackboardKeyType_Bool>(FName("donePath"), true);
-		}
+		
 		/*
 		if (movingRes == EPathFollowingRequestResult::Failed) {
 			UE_LOG(LogTemp, Warning, TEXT("[move] fail"));		

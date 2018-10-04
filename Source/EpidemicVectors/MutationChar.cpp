@@ -55,17 +55,28 @@ void AMutationChar::BeginPlay()
 	myAnimBP = Cast<UMutationAnimComm>(GetMesh()->GetAnimInstance());
 
 	myController = Cast<AMutationCtrl>(GetController());
-	myController->SetCanFly(canFly);
 	world = GetWorld();
-	mystate = MutationStates::patrol;
+	mystate = MutationStates::idle;
 
 	//to enable tests on the editor
 	myController->SetDesperate(life < desperateLifeLevel);
+	myController->SetCanFly(canFly);
+	myController->SetAirborne(startAirborne);
+	if (startAirborne) {
+		GetCharacterMovement()->MovementMode = MOVE_Flying;
+	}
+	else {
+		GetCharacterMovement()->MovementMode = MOVE_Walking;
+	}
+	myController->SetGoalInAir(false);
+	myController->SetDonePath(true);
+	currentScanParams = investigateParams;
+
+	/*
 	if (!patrolPoints.IsValidIndex(0)) {
 		GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, FString::Printf(TEXT("[Mutation %s] have no patrol points!!!!"), *GetName()));
 		UGameplayStatics::SetGlobalTimeDilation(world, .2f);
 	}
-	/*
 	if (&attackList[0] == nullptr) {
 		GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, FString::Printf(TEXT("[Mutation %s] have no attack animation list!!!!"), *GetName()));
 		UGameplayStatics::SetGlobalTimeDilation(world, .2f);
@@ -83,170 +94,81 @@ void AMutationChar::Tick(float DeltaTime)
 
 	inAir = GetMovementComponent()->IsFalling();
 	myController->SetAirborne(inAir||flying);
+	/*
+	if (inAir) {
+		UE_LOG(LogTemp, Warning, TEXT("mutation falling"));
+	}
+	else {
+		UE_LOG(LogTemp, Warning, TEXT("mutation not falling"));
+	}
+	*/
 	
-	//DrawDebugSphere(world, GetActorLocation(), fightRange, 48, FColor::Cyan, true, 0.1f, 0, 5.0);
-	//GEngine->AddOnScreenDebugMessage(-1, 0.1f, FColor::Blue, FString::Printf(TEXT("[Mutation] state: %d"),(uint8)mystate));
+	GEngine->AddOnScreenDebugMessage(-1, 0.1f, FColor::Blue, FString::Printf(TEXT("[Mutation] state: %d"),(uint8)mystate));
 		
 	switch(mystate){
 	case MutationStates::idle:
 		
 		break;
-	case MutationStates::patrol:
-		PawnSensingComp->SetSensingUpdatesEnabled(true);
-		//targetPos = patrolPoints[nextPatrol_i]->GetActorLocation();
-		targetPos = myController->GetGoal();
-		DrawDebugSphere(world, targetPos, moveTolerance, 48, FColor::Green, true, 0.1f, 0, 5.0);
-		//DrawDebugSphere(world, GetActorLocation(), moveTolerance, 48, FColor::Blue, true, 0.1f, 0, 5.0);	
-
-		//check if next patrol point is visible, do raycast here
-		// Ignore the player's pawn
-		RayParams.AddIgnoredActor(this);
-		targetVisible = !world->LineTraceSingleByChannel(hitres, GetActorLocation(), patrolPoints[nextPatrol_i]->GetActorLocation(), ECC_Pawn, RayParams);
-		DrawDebugLine(world, GetActorLocation(), patrolPoints[nextPatrol_i]->GetActorLocation(), FColor(0, 0, 255), true, -1, 0, 5.0);
-
-		myController->SetTargetVisible(targetVisible);
-
-		if(arrivedTime > 0.0f){//scanning
-				if (mytime - arrivedTime < scanTime) {
-					//UE_LOG(LogTemp, Warning, TEXT("mutation scanning patrolpoint: %d, going to %d"),patrol_i, nextPatrol_i);
-					//if scanning location
-					float scanGain = (mytime - arrivedTime) / scanTime;
-					
-					FVector myLoc = GetActorLocation();
-					FVector targetLoc = patrolPoints[nextPatrol_i]->GetActorLocation();
-
-					// get forward vector
-					const FRotator Rotation = Controller->GetControlRotation();
-					FVector forthVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::X);
-
-					//FVector forthLoc = myLoc + 2.0f*forthVec;
-					FVector forthLoc = myLoc + (targetLoc - myLoc).Size()*forthVec;
-
-					//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, FString::Printf(TEXT("size vector: %f"), (targetLoc - myLoc).Size()));
-
-					GetCharacterMovement()->bOrientRotationToMovement = false;
-					//third order response
-					//FVector immediateTarget = forthLoc + (targetLoc - forthLoc)*pow(scanGain,3);
-
-					//first order response with quadratic time (a=scanPatrol_a, b=scanPatrol_b,c=0)
-					FVector immediateTarget = forthLoc + (targetLoc - forthLoc)*(scanPatrol_a*pow(scanGain, 2)+scanPatrol_b*scanGain);
-
-					DrawDebugLine(world, myLoc, myLoc + forthVec * 100.0f *scanGain, FColor(255, 0, 0), true, -1, 0, 5.0);
-					DrawDebugLine(world, myLoc, immediateTarget, FColor(0, 255, 0), true, -1, 0, 5.0);
-
-					//calculate intermediate position for the smooth lock on
-					FRotator almostLookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, immediateTarget);
-					const FRotator lookToTargetYaw(0, almostLookToTarget.Yaw, 0);
-
-					Controller->SetControlRotation(lookToTargetYaw);
-					SetActorRotation(lookToTargetYaw);
-					/*
-					//SetActorRotation(almostLookToTarget);					
-					FRotator NewRotation = FRotator(0.0f, scanGain * 10, 0.0f);
-					FQuat QuatRotation = FQuat(NewRotation);
-					AddActorLocalRotation(QuatRotation, false, 0, ETeleportType::None);
-					//Controller->AddActorWorldRotation(QuatRotation, false,0, ETeleportType::None);
-					*/
-
-				}
-				else {
-					UE_LOG(LogTemp, Warning, TEXT("mutation going to next patrol"));
-					//go to next location
-					GoNextPatrolPoint();
-				}
-		}
-		else{//traversing
-			//distToTarget = FVector::Distance(GetActorLocation(), targetPos);
-			//if (distToTarget <= moveTolerance) { ArrivedAtPatrolPoint(); }
-		}
+	case MutationStates::patrol:		
+			
+		Navigating();
 		break;
 	case MutationStates::investigate:
-		targetPos = myController->GetGoal();
-		DrawDebugSphere(world, targetPos, moveTolerance, 48, FColor::Green, true, 0.1f, 0, 5.0);
-		//distToTarget = FVector::Distance(GetActorLocation(), targetPos);
-		//if (distToTarget <= moveTolerance) { myController->SetDonePath(true); }
-
-		if (timeHeard > 0 && mytime - timeHeard > searchNdestroyTime) {
-			myController->SetTargetLocated(false);
-			timeHeard = 0.0f;
-		}
-		if (timeSeen > 0 && mytime - timeSeen > lookTime) {
-			myController->SetTargetVisible(false);
-			timeSeen = 0.0f;
-		}
+		
+		Navigating();
 		break;
-	case MutationStates::fight:		
+	case MutationStates::fight:
+		GetCharacterMovement()->bOrientRotationToMovement = false;
+		DrawDebugSphere(world, GetActorLocation(), fightRange, 12, FColor::Green, true, 0.1f, 0, 1.0);
+
 		CheckRange();
+
+		targetPos = myTarget->GetActorLocation();
 		LookTo(targetPos);
-		MutationFight();
+		MutationFight();		
+				
 		break;
 	case MutationStates::escape:
-		
+		Navigating();
 		break;
-	case MutationStates::pursuit:
-		targetPos = myController->GetGoal();
-		DrawDebugSphere(world, targetPos, moveTolerance, 48, FColor::Green, true, 0.1f, 0, 5.0);
-				
-		if (timeHeard > 0 && mytime - timeHeard > searchNdestroyTime) {
+	case MutationStates::pursuit:		
+		Navigating();
+		break;
+		
+	case MutationStates::attacking:
+		if ((Controller != NULL) && (advanceAtk != 0.0f))
+		{
+			// get forward vector
+			const FVector Direction = GetActorForwardVector();
+			AddMovementInput(Direction, advanceAtk);
+		}
+			
+	break;
+	case MutationStates::suffering:			
+		const FVector Direction = GetActorForwardVector();
+		AddMovementInput(-Direction, recoilPortion);
+	break;
+	}
+
+	//persistent elements
+	if (timeHeard > 0 && mytime - timeHeard > searchNdestroyTime) {
+		if (mystate != MutationStates::fight) {
 			myController->SetTargetLocated(false);
 			timeHeard = 0.0f;
-			myController->StopBT();
-			myController->RestartBT();
-		}
-		if (timeSeen > 0 && mytime - timeSeen > lookTime) {
+		}		
+	}
+	if (timeSeen > 0 && mytime - timeSeen > lookTime) {
+		if (mystate != MutationStates::fight) {
 			myController->SetTargetVisible(false);
 			timeSeen = 0.0f;
-			myController->StopBT();
-			myController->RestartBT();
-		}
-		CheckRange();
-
-		break;
-		case MutationStates::flight:
-			targetPos = myController->GetGoal();
-			AddMovementInput(targetPos - GetActorLocation(), 1.0f);
-			distToTarget = FVector::Distance(GetActorLocation(), targetPos);
-			if (distToTarget <= moveTolerance) { ArrivedAtPatrolPoint();}			
-
-			break;
-		case MutationStates::attacking:
-			if ((Controller != NULL) && (advanceAtk != 0.0f))
-			{
-				// get forward vector
-				const FVector Direction = GetActorForwardVector();
-				AddMovementInput(Direction, advanceAtk);
-			}
-			CheckRange();
-			break;
-		case MutationStates::suffering:
-			CheckRange();
-
-			const FVector Direction = GetActorForwardVector();
-			AddMovementInput(-Direction, recoilPortion);
-			break;
-	}
-	/*
-	if (mytime - startedFollowing > silentTime) {
-		//stop behavior tree to stop following
-		myController->StopBT();
-		if (!targetLost) {
-			targetLost = true;
-			lostTargetTime = mytime;
-		}
-	}
-	if (targetLost && mytime - lostTargetTime < stunLostTime) {
-		const FVector Direction = GetActorForwardVector();
-		AddMovementInput(-Direction, 1.0f);
-	}
-	*/
-	
+		}		
+	}	
 }
 
 // Called to bind functionality to input
 void AMutationChar::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
-
 }
 
 void AMutationChar::OnHearNoise(APawn* PawnInstigator, const FVector& Location, float Volume)
@@ -256,22 +178,16 @@ void AMutationChar::OnHearNoise(APawn* PawnInstigator, const FVector& Location, 
 	{
 		//Updates our target based on what we've heard.
 		UE_LOG(LogTemp, Warning, TEXT("[Mutation] target heard."));
-
-		myController->StopBT();
+				
 		myController->SetTargetLocated(true);
 		timeHeard = mytime;
-		//myController->SetSensedTarget(PawnInstigator);
+		
 		myTarget = Cast<AMyPlayerCharacter>(PawnInstigator);
 		targetPos = PawnInstigator->GetActorLocation();
 		myController->SetGoal(targetPos);
 		//goal is in the air?
 		myController->SetGoalInAir(myTarget->inAir);
-		if(mystate != MutationStates::suffering)
-			myController->RestartBT();		
-		/*
-		startedFollowing = mytime;
-		targetLost = false;
-		*/
+		moveMode = MoveModes::traversing;		
 	}
 }
 
@@ -279,8 +195,7 @@ void AMutationChar::OnSeenTarget(APawn* PawnInstigator)
 {
 	//We don't want to hear ourselves
 	if (myController && PawnInstigator != this)
-	{
-		myController->StopBT();
+	{		
 		UE_LOG(LogTemp, Warning, TEXT("[Mutation] target seen!."));
 		//Updates our target based on what we've heard.
 		myController->SetTargetLocated(true);
@@ -288,50 +203,57 @@ void AMutationChar::OnSeenTarget(APawn* PawnInstigator)
 		timeHeard = mytime;
 		myController->SetTargetVisible(true);
 		timeSeen = mytime;
-		//myController->SetSensedTarget(PawnInstigator);
+		
 		myTarget = Cast<AMyPlayerCharacter>(PawnInstigator);
 		targetPos = PawnInstigator->GetActorLocation();
+		//DrawDebugSphere(world, targetPos, moveTolerance, 12, FColor::Green, true, 5.0f, 0, 5.0);
 		myController->SetGoal(targetPos);
 		myController->SetGoalInAir(myTarget->inAir);
-		if (mystate != MutationStates::suffering)
-			myController->RestartBT();
-		/*
-		myController->SetSensedTarget(PawnInstigator);
-		myController->RestartBT();
-		startedFollowing = mytime;
-		targetLost = false;
-		*/
+		CheckRange();
 	}
 }
 void AMutationChar::CheckRange()
 {
 	targetPos = myTarget->GetActorLocation();
 	distToTarget = FVector::Distance(GetActorLocation(), targetPos);
-	inFightRange = distToTarget <= fightRange;
+	inFightRange = distToTarget < fightRange;
 	
 	myController->SetInFightRange(inFightRange);
-	PawnSensingComp->SetActive(!inFightRange);
-	PawnSensingComp->SetSensingUpdatesEnabled(!inFightRange);
+	
+	if (inFightRange) {
+		//UE_LOG(LogTemp, Warning, TEXT("[mutation] entered the fight"));
+		//PawnSensingComp->SetActive(false);
+		PawnSensingComp->SetSensingUpdatesEnabled(false);
+		PawnSensingComp->bSeePawns = false;
+		myController->StopBT();
+		if (mystate != MutationStates::fight && mystate != MutationStates::attacking && mystate != MutationStates::suffering) {
+			UE_LOG(LogTemp, Warning, TEXT("[mutation] changed to state fight"));
+			newgoalset = true;
+			mystate = MutationStates::fight;
+			myController->SetReachedGoal(false);
+			ArrivedAtGoal();
+		}
+	}
+	else {
+		UE_LOG(LogTemp, Warning, TEXT("[mutation] sensing enabled"));		
+		//PawnSensingComp->SetActive(true);
+		PawnSensingComp->SetSensingUpdatesEnabled(true);
+		PawnSensingComp->bSeePawns = true;
+		ArrivedAtGoal();
+		myController->RestartBT();		
+	}
 }
 void AMutationChar::LookTo(FVector LookPosition) {
 	FRotator lookToRot = UKismetMathLibrary::FindLookAtRotation(GetActorLocation(), LookPosition);
 	const FRotator lookToYaw(0, lookToRot.Yaw, 0);
 	SetActorRotation(lookToYaw);
 }
-void AMutationChar::GoNextPatrolPoint()
-{
-	arrivedTime = 0.0f;
-	myController->SetDonePath(false);
-	GetCharacterMovement()->bOrientRotationToMovement = true;
-	myController->RestartBT();
-	UE_LOG(LogTemp, Warning, TEXT("mutation going to patrolpoint: %d"), nextPatrol_i);
-}
 
 void AMutationChar::NextPatrolPoint()
 {
 	patrol_i = nextPatrol_i;
 	if (patrolPoints.Num() >= 2) {
-		if (patrol_in_order) {
+		if (patrol_in_order || patrolBackNforth) {
 			nextPatrol_i += patrolDir;
 
 			if (nextPatrol_i >= patrolPoints.Num()) {
@@ -359,34 +281,201 @@ void AMutationChar::NextPatrolPoint()
 				nextPatrol_i = 0;
 		}
 	}
-			
+	//extract information from the TargetPoint MutationWaypoint
+	myController->SetGoalInAir(false);
 	UE_LOG(LogTemp, Warning, TEXT("Updated next patrol point to: %d"), nextPatrol_i);
 }
+void AMutationChar::Navigating() {
+	switch (moveMode) {
+	case MoveModes::waitOldHead:
+		GEngine->AddOnScreenDebugMessage(-1, 0.2f, FColor::Yellow, TEXT("[Mutation] waiting in old heading"));
+		if (mytime - startMoveTimer < currentScanParams.timeInOldHead && startMoveTimer != 0.0f) {}
+		else {
+			startMoveTimer = mytime;
+			moveMode = MoveModes::scanning;
+		}
+		break;
+	case MoveModes::scanning:
+		GEngine->AddOnScreenDebugMessage(-1, 0.2f, FColor::Yellow, TEXT("[Mutation] scanning environment"));
+		if (mytime - startMoveTimer < currentScanParams.timeToScan && startMoveTimer != 0.0f) {
+			//UE_LOG(LogTemp, Warning, TEXT("mutation scanning patrolpoint: %d, going to %d"),patrol_i, nextPatrol_i);
+			//if scanning location
+			float scanGain = (mytime - startMoveTimer) / currentScanParams.timeToScan;
 
-void AMutationChar::ArrivedAtPatrolPoint()
-{
-	if (arrivedTime == 0.0f) {
-		myController->SetDonePath(true);
-		//GetCharacterMovement()->MovementMode = MOVE_Walking;
-		flying = false;
-		arrivedTime = mytime;
-		mystate = MutationStates::patrol;
-		myController->StopBT();
-		GetCharacterMovement()->bOrientRotationToMovement = false;
-		UE_LOG(LogTemp, Warning, TEXT("arrived at point: %d"), nextPatrol_i);
-		NextPatrolPoint();
+			FVector myLoc = GetActorLocation();
+			FVector targetLoc = patrolPoints[nextPatrol_i]->GetActorLocation();
+
+			// get forward vector
+			const FRotator Rotation = Controller->GetControlRotation();
+			FVector forthVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::X);
+
+			//FVector forthLoc = myLoc + 2.0f*forthVec;
+			FVector forthLoc = myLoc + (targetLoc - myLoc).Size()*forthVec;
+
+			//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, FString::Printf(TEXT("size vector: %f"), (targetLoc - myLoc).Size()));
+
+			GetCharacterMovement()->bOrientRotationToMovement = false;
+			//third order response
+			FVector immediateTarget = forthLoc + (targetLoc - forthLoc)*pow(scanGain, 3);
+
+			DrawDebugLine(world, myLoc, myLoc + forthVec * 100.0f *scanGain, FColor(255, 0, 0), true, -1, 0, 5.0);
+			DrawDebugLine(world, myLoc, immediateTarget, FColor(0, 255, 0), true, -1, 0, 5.0);
+
+			//calculate intermediate position for the smooth lock on
+			FRotator almostLookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, immediateTarget);
+			const FRotator lookToTargetYaw(0, almostLookToTarget.Yaw, 0);
+
+			Controller->SetControlRotation(lookToTargetYaw);
+			SetActorRotation(lookToTargetYaw);
+			/*
+			//SetActorRotation(almostLookToTarget);
+			FRotator NewRotation = FRotator(0.0f, scanGain * 10, 0.0f);
+			FQuat QuatRotation = FQuat(NewRotation);
+			AddActorLocalRotation(QuatRotation, false, 0, ETeleportType::None);
+			//Controller->AddActorWorldRotation(QuatRotation, false,0, ETeleportType::None);
+			*/
+
+		}
+		else {
+			startMoveTimer = mytime;
+			moveMode = MoveModes::waitAfterScan;
+		}
+		break;
+	case MoveModes::waitAfterScan:
+		GEngine->AddOnScreenDebugMessage(-1, 0.2f, FColor::Yellow, TEXT("[Mutation] waiting after scan"));
+		if (mytime - startMoveTimer < currentScanParams.timeInMidHead && startMoveTimer != 0.0f) {}
+		else {
+			startMoveTimer = mytime;
+			moveMode = MoveModes::turn2NewHead;
+		}
+		break;
+	case MoveModes::turn2NewHead:
+		GEngine->AddOnScreenDebugMessage(-1, 0.2f, FColor::Yellow, TEXT("[Mutation] turning 2 new heading"));
+		if (mytime - startMoveTimer < currentScanParams.timeToLookNewHead && startMoveTimer != 0.0f) {}
+		else {
+			startMoveTimer = mytime;
+			moveMode = MoveModes::waitInNewHead;
+		}
+		break;
+	case MoveModes::waitInNewHead:
+		GEngine->AddOnScreenDebugMessage(-1, 0.2f, FColor::Yellow, TEXT("[Mutation] waiting in new heading"));
+		if (mytime - startMoveTimer < currentScanParams.timeBeforeTraverse && startMoveTimer != 0.0f) {}
+		else {
+			DrawDebugSphere(world, targetPos, moveTolerance, 12, FColor::Green, true, 5.0f, 0, 5.0);
+			startMoveTimer = 0.0f;
+			
+			StartTraverse();
+		}
+		break;
+	case MoveModes::traversing:
+		GetCharacterMovement()->bOrientRotationToMovement = true;
+		GEngine->AddOnScreenDebugMessage(-1, 0.2f, FColor::Yellow, TEXT("[Mutation] traversing"));
+
+		distToTarget = FVector::Distance(GetActorLocation(), targetPos);
+		if (distToTarget <= moveTolerance) { 
+			myController->SetReachedGoal(true);
+			ArrivedAtGoal(); 
+		}
+		else {
+			if (flying) {
+				AddMovementInput(targetPos - GetActorLocation(), 1.0f);
+				//slow down
+				if (distToTarget <= flyStopFactor * moveTolerance) {
+					
+					float deacelRate = pow((distToTarget - moveTolerance) / (flyStopFactor*moveTolerance - moveTolerance), 0.5f);
+					GetCharacterMovement()->Velocity *= deacelRate;
+					UE_LOG(LogTemp, Warning, TEXT("[mutation] deacel %f"), deacelRate);
+				}				
+			}
+		}
+		break;
 	}
+}
+void AMutationChar::StartTraverse() {
+	moveMode = MoveModes::traversing;
+
+	UE_LOG(LogTemp, Warning, TEXT("mutation going to new goal"));
+
+	if (!flying) {
+		UE_LOG(LogTemp, Warning, TEXT("walking"));
+		EPathFollowingRequestResult::Type movingRes;
+		movingRes = myController->MoveToLocation(targetPos, 5.0f, true, true, true, true, 0, true);
+		if (movingRes != EPathFollowingRequestResult::RequestSuccessful)
+			ArrivedAtGoal();
+	}
+	else {
+		UE_LOG(LogTemp, Warning, TEXT("flying"));
+	}
+}
+void AMutationChar::ArrivedAtGoal()
+{
+	if (newgoalset) {
+		newgoalset = false;
+		if (mystate == MutationStates::patrol) {
+			UE_LOG(LogTemp, Warning, TEXT("arrived at point: %d"), nextPatrol_i);
+			NextPatrolPoint();
+		}
+
+		if (GetCharacterMovement()->IsMovingOnGround()) {
+			flying = false;
+			myController->SetAirborne(false);
+			UE_LOG(LogTemp, Warning, TEXT("[navigation] it is grounded by char movement test"), nextPatrol_i);
+		}
+
+		//check if on the navigation mesh to find out if it is grounded
+		if (flying) {
+			EPathFollowingRequestResult::Type movingRes;
+			movingRes = myController->MoveToLocation(targetPos, 5.0f, true, true, true, true, 0, true);
+			if (movingRes == EPathFollowingRequestResult::RequestSuccessful || movingRes == EPathFollowingRequestResult::AlreadyAtGoal) {
+				flying = false;
+				myController->SetAirborne(false);
+				UE_LOG(LogTemp, Warning, TEXT("[navigation] it is grounded by AI test"), nextPatrol_i);
+			}
+			myController->StopMovement();
+		}		
+		//free behaviour tree
+		myController->SetDonePath(true);
+	}
+}
+void AMutationChar::NewGoal(bool Flying) {
+	newgoalset = true;
+	targetPos = myController->GetGoal();
+
+	if (mystate == MutationStates::patrol) {
+		currentScanParams = investigateParams;
+	}
+	else {
+		currentScanParams = investigateParams;
+	}	
+	
+	moveMode = MoveModes::waitOldHead;
+	startMoveTimer = mytime;
+
+	flying = Flying;	
+	if (flying) {
+		GetCharacterMovement()->MovementMode = MOVE_Flying;
+	}
+	else {
+		GetCharacterMovement()->MovementMode = MOVE_Walking;
+	}
+	GetCharacterMovement()->bOrientRotationToMovement = true;
 }
 
 void AMutationChar::MutationFight() {
-	
-	
 	//UE_LOG(LogTemp, Warning, TEXT("[task] Mutation %s fighting"), *GetName());
-	//DrawDebugSphere(world, GetActorLocation(), strikeDistance, 48, FColor::Orange, true, 0.1f, 0, 5.0);
 	if (distToTarget < strikeDistance){
 		MeleeAttack();
 	}
+	else {
+		if (distToTarget < 2*strikeDistance) {
+			//SpiralAttack();
+		}
+		else {
+			//DashSideways();
+		}
+	}
 }
+
 void AMutationChar::StartLethal() {
 	advanceAtk = 1.0f;
 	if(GetMesh()->GetChildComponent(0))
@@ -402,8 +491,10 @@ void AMutationChar::StopLethal() {
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::NextComboHit, time4NextHit, false);
 }
 void AMutationChar::ResetFightAnims() {
+	UE_LOG(LogTemp, Warning, TEXT("[mutation] finished attacking"));
 	mystate = MutationStates::fight;
-	myController->RestartBT();
+	//CheckRange();
+	//myController->RestartBT();
 	GetMesh()->SetAnimationMode(EAnimationMode::AnimationBlueprint);
 	myAnimBP = Cast<UMutationAnimComm>(GetMesh()->GetAnimInstance());
 	GEngine->AddOnScreenDebugMessage(-1, 0.2f, FColor::Blue, TEXT("[Mutation] following the anim blueprint again!"));
@@ -411,7 +502,7 @@ void AMutationChar::ResetFightAnims() {
 void AMutationChar::MeleeAttack() {
 	UE_LOG(LogTemp, Warning, TEXT("mutation %s in meleeAttack"), *GetName());
 	mystate = MutationStates::attacking;
-	myController->StopBT();
+	//myController->StopBT();
 	GetMesh()->Stop();
 
 	//look in player's direction
@@ -461,11 +552,12 @@ void AMutationChar::MyDamage(float DamagePower, FVector AlgozPos) {
 		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Blue, "[Mutation] damaged: "+GetName());
 	}
 	UE_LOG(LogTemp, Warning, TEXT("mutation %s in damage"), *GetName());
-	CancelAttack();
 	mystate = MutationStates::suffering;
-
+	CancelAttack();
+	GetCharacterMovement()->StopActiveMovement();
+	
 	//look to your algoz
-	LookTo(AlgozPos);
+	//LookTo(AlgozPos);
 	
 	recoilPortion = 1.0f;
 	
@@ -484,17 +576,24 @@ void AMutationChar::MyDamage(float DamagePower, FVector AlgozPos) {
 	else
 		myAnimBP->damage = 2;
 
+	UGameplayStatics::SetGlobalTimeDilation(world, 0.1f);
 	//start stabilize timer
-	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::Stabilize, damageTime, false);
+	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::DelayedStabilize, hitPauseDuration, false);
 }
 void AMutationChar::Death() {
 	if (GEngine) {
 		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, "[Mutation %s] is dead"+GetName());
 	}
 }
+void AMutationChar::DelayedStabilize() {
+	UGameplayStatics::SetGlobalTimeDilation(world, 1.0f);
+	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::Stabilize, damageTime, false);
+}
 void AMutationChar::Stabilize() {
+	UE_LOG(LogTemp, Warning, TEXT("[mutation] recovered from damage"));
 	mystate = MutationStates::fight;
-	myController->StopBT();
+	//CheckRange();
+	//myController->StopBT();
 	myAnimBP->damage = 0;
 	recoilPortion = 0.0f;	
 }

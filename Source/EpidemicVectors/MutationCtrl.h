@@ -53,6 +53,7 @@ public:
 	void SetCanFly(bool CanFly);
 	void SetInFightRange(bool InFightRange);
 	void SetDesperate(bool Desperate);
+	void SetReachedGoal(bool Reached);
 	
 	FVector GetGoal();
 

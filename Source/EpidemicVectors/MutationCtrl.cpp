@@ -73,7 +73,7 @@ void AMutationCtrl::SetDonePath(bool DonePath)
 void AMutationCtrl::SetAirborne(bool Airborne)
 {
 	//Set in air
-	if (BlackboardComp) BlackboardComp->SetValueAsBool(FName("inAir"), Airborne);
+	if (BlackboardComp) BlackboardComp->SetValueAsBool(FName("airborne"), Airborne);
 }
 void AMutationCtrl::SetTargetVisible(bool Visible) 
 {
@@ -108,7 +108,12 @@ void AMutationCtrl::SetInFightRange(bool InFightRange)
 void AMutationCtrl::SetDesperate(bool Desperate)
 {
 	//Set life
-	if (BlackboardComp) BlackboardComp->SetValueAsBool(FName("isDesperate"), Desperate);
+	if (BlackboardComp) BlackboardComp->SetValueAsBool(FName("desperate"), Desperate);
+}
+void AMutationCtrl::SetReachedGoal(bool Reached)
+{
+	//Set life
+	if (BlackboardComp) BlackboardComp->SetValueAsBool(FName("reachedGoal"), Reached);
 }
 FVector AMutationCtrl::GetGoal() 
 {
