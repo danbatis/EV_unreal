@@ -19,6 +19,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float speedv;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float speedh;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool inAir;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool jumped;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool dash;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool airdashed;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int attackIndex;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int knockDown;
 

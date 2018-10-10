@@ -115,6 +115,11 @@ void AMutationCtrl::SetReachedGoal(bool Reached)
 	//Set life
 	if (BlackboardComp) BlackboardComp->SetValueAsBool(FName("reachedGoal"), Reached);
 }
+void AMutationCtrl::SetBlindSearch(bool Active)
+{
+	//Set life
+	if (BlackboardComp) BlackboardComp->SetValueAsBool(FName("blindSearch"), Active);
+}
 FVector AMutationCtrl::GetGoal() 
 {
 	if (BlackboardComp)

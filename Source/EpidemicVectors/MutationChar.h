@@ -23,6 +23,36 @@
 
 //forward declaration to tell compiler the class exists
 class AMutationCtrl;
+class AMyPlayerCharacter;
+
+USTRUCT(BlueprintType, Category = "MutationAI")
+struct FMutAtkNode {
+	GENERATED_USTRUCT_BODY()
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") UAnimSequence *myAnim;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float speed;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float time2lethal;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float lethalTime;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") int leftNode;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") int rightNode;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float coolDown;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float advanceAtkValue;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float telegraphPortion;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float telegraphAdvance;
+	FMutAtkNode* left;
+	FMutAtkNode* right;
+
+	FMutAtkNode() {
+		myAnim = NULL;
+		speed = 2.0f;
+		time2lethal = 0.1f;
+		lethalTime = 0.8f;
+		coolDown = 0.3f;
+		advanceAtkValue = 1.0f;
+		telegraphPortion = 0.0f;
+		telegraphAdvance = 0.0f;
+	}
+};
 
 USTRUCT(BlueprintType, Category = "MutationAI")
 struct FScanParams {
@@ -54,6 +84,8 @@ UENUM(BlueprintType) enum class MutationStates:uint8 {
 	pursuit		UMETA(DisplayName = "pursuit"),	
 	attacking	UMETA(DisplayName = "attacking"),
 	suffering	UMETA(DisplayName = "suffering"),
+	evading		UMETA(DisplayName = "evading"),
+	approach	UMETA(DisplayName = "approach"),
 };
 
 UCLASS()
@@ -102,7 +134,7 @@ public:
 	
 	UFUNCTION(BlueprintCallable) void NextPatrolPoint();
 	UFUNCTION(BlueprintCallable) void ArrivedAtGoal();
-	UFUNCTION(BlueprintCallable) void MutationFight();
+	UFUNCTION(BlueprintCallable) void MutationFight(float DeltaTime);
 
 	/*A Behavior Tree reference*/
 	UPROPERTY(EditDefaultsOnly)
@@ -110,6 +142,7 @@ public:
 
 	AMutationCtrl* myController;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool debugInfo;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float silentTime;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float stunLostTime;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") TArray<ATargetPoint*> patrolPoints;
@@ -131,51 +164,86 @@ public:
 	bool flying;
 	bool inAir;
 	bool inFightRange;
+	bool donePath;
 	bool targetVisible;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float life = 100.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float damageTime = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float normalSpeed = 600.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float normalAcel = 2048.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float spiralSpeed = 1000.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float spiralAcel = 4000.0f;
 	float timeHeard;
 	float timeSeen;
+	float targetSensedTime;
 	int patrol_i;
 	int patrolDir = 1;
 	float distToTarget;
 	AMyPlayerCharacter* myTarget;
 	FVector targetPos;
-	bool newgoalset = false;
-
+	bool becomeDesperate = false;
+	bool reachedGoal = false;
+	bool facingTarget = false;
+	int scanDir = 1;
+	float scanTurnSpeed;
+	float angleToTurn2Target = 0.0f;
+	FRotator ScanRotation;
+	FQuat QuatScanRotation;
+	int rotateToFaceTargetDir;
+	bool attackConnected;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float faceTolerance = 2.0f; 	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float faceTargetRotSpeed = 10.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float blindPursuitTime = 5.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float aggressivity = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float maxIdleTime = 2.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float minIdleTime = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float dashTime = 0.5f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float hitPauseDuration = 0.01f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float flyStopFactor = 2.5f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool startAirborne = false;
-	UPROPERTY(EditAnywhere, Category = "MutationAI") TArray<FAtkNode> attackList;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") FMutAtkNode spiralAtkNode;
+	UPROPERTY(EditAnywhere, Category = "MutationAI") TArray<FMutAtkNode> attackList;
 
-	void NewGoal(bool Flying);
+	void NewGoal(bool Flying);	
 
 private:
+	float evadeValue;
+	float oldTargetDist;
+	FVector moveDir;
 	// You can use this to customize various properties about the trace
 	FCollisionQueryParams RayParams;
 	// The hit result gets populated by the line trace
 	FHitResult hitres;
 	UWorld* world;
 	UMutationAnimComm * myAnimBP;
+	UCharacterMovementComponent *myCharMove;
+	USkeletalMeshComponent * myMesh;
 	float startMoveTimer;
 	float advanceAtk;
 	float recoilPortion;
-	void CheckRange();
+	void CheckDesperation();
+	bool CheckRange();
 	void LookTo(FVector LookPosition);
 	void ResetFightAnims();
 	void StartLethal();
 	void StopLethal();
-	void MeleeAttack();
+	void Investigate();
+
+	void IdleWait(float WaitTime);
+	void MeleeAttack();	
+	void SpiralAttack();
+	void Approach();
+	void DashSideways();
+	void CombatAction(int near_i);
+
 	void NextComboHit();
 	void CancelAttack();
 	void MyDamage(float DamagePower, FVector AlgozPos);
 	void Death();
 	void DelayedStabilize();
 	void Stabilize();
-	void Navigating();
+	void Navigating(float DeltaTime);
 	void StartTraverse();
 	
-	FTimerHandle timerHandle;
-	FAtkNode* atkWalker;
+	FTimerHandle timerHandle;	
+	FMutAtkNode* atkWalker;
 };

@@ -62,8 +62,9 @@ void AMyPlayerCharacter::BeginPlay()
 
 	mystate = idle;
 	//getting my basic animation blueprint communication class
-	myAnimBP = Cast<UAnimComm>(GetMesh()->GetAnimInstance());
-	Cast<UPrimitiveComponent>(GetMesh()->GetChildComponent(0))->SetGenerateOverlapEvents(false);
+	myMesh = GetMesh();
+	myAnimBP = Cast<UAnimComm>(myMesh->GetAnimInstance());
+	Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
 
 	world = GetWorld();
 	player = UGameplayStatics::GetPlayerController(world, 0);//crashes if in the constructor	
@@ -136,23 +137,26 @@ void AMyPlayerCharacter::BeginPlay()
 	}
 	*/
 	
-
-	//now find enemies	
-	for (TActorIterator<AMosquitoCharacter> it(world, AMosquitoCharacter::StaticClass()); it; ++it)
-	{
-		AMosquitoCharacter* actor = *it;
-		if (actor != NULL) {
-			GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::White, "Mosquito found name: " + actor->GetName());
-			mosquitos.Add(actor);
-		}
-	}
-	
 	player->GetViewportSize(width, height);
 	myCharMove = GetCharacterMovement();
 
 	myCharMove->MaxWalkSpeed = normalSpeed;
 	myCharMove->MaxAcceleration = normalAcel;
 	myCharMove->AirControl = normalAirCtrl;
+	
+	//to signal there is no target selected or locked
+	target_i = -1;
+	//find enemies
+	for (TActorIterator<AMutationChar> it(world, AMutationChar::StaticClass()); it; ++it)
+	{
+		AMutationChar* actor = *it;
+		if (actor != NULL) {
+			if (debugInfo)
+				GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::White, "Mutation found name: " + actor->GetName());	
+
+			mutations.Add(actor);			
+		}
+	}
 }
 
 // Called every frame
@@ -163,25 +167,157 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 	mytime += DeltaTime;
 	inAir = GetMovementComponent()->IsFalling() || flying;
 	if(!inAir) {
-	//	GEngine->AddOnScreenDebugMessage(-1, 0.1f, FColor::Blue, TEXT("falling..."));
+		//if (debugInfo)
+		//	GEngine->AddOnScreenDebugMessage(-1, 0.1f, FColor::Blue, TEXT("falling..."));
 		airAttackLocked = false;
+		myAnimBP->airdashed = false;
 	}
 	myRotation = Controller->GetControlRotation();
 	YawRotation = FRotator(0, myRotation.Yaw, 0);
 	
+	if (dashStart > 0 && mytime - dashStart < dashTime && dashPower > 0.0f) {
+		//dashing
+		CancelAttack();
+		dashing = true;
+		startRecoverStamina = 0.0f;
+		//if forward, then it is the infinite dash, no invincibility
+		if (vertIn > 0 && FMath::Abs(horIn) <= 0.5f && mystate != evading) {
+			dashLocked = true;
+			//cancel the timer
+			dashStart = mytime;
+			dashPowerRate = dashForthRate;
+			dashDirH = 0.0f;
+			dashDirV = 1.0f;
+		}
+		else{
+			if(!dashLocked){
+				//if no move axe input, evade backwards
+				if (vertIn == 0.0f && horIn == 0.0f) {
+					mystate = evading;
+					dashPowerRate = evadeRate;
+					dashDirV = -1.0f;
+					dashDirH = 0.0f;
+				}
+				else {
+					//evade diagonal
+					mystate = evading;
+					dashPowerRate = evadeRate;
+					dashDirV = vertIn;
+					dashDirH = horIn;
+				}
+			}
+		}
+	}
+	else {
+		dashing = false;
+		dashPowerRate = recoverStaminaRate;
+		if (dashStart != 0.0f) {
+			startRecoverStamina = mytime;
+			if (inAir)
+				myAnimBP->airdashed = true;
+		}
+		dashStart = 0.0f;
+	}
+	if(!dashDesire && mystate != evading && dashStart != 0.0f) {	
+		//dash button released, stop turboForth
+		dashLocked = false;
+		dashing = false;
+		dashPowerRate = recoverStaminaRate;
+		if (dashStart != 0.0f) {
+			startRecoverStamina = mytime;
+			if (inAir)
+				myAnimBP->airdashed = true;
+		}
+		dashStart = 0.0f;
+	}
+
+	if (dashing) {
+		dashPower -= dashPowerRate * DeltaTime;
+		if (dashPower <= 0) {
+			dashing = false;
+			dashPowerRate = recoverStaminaRate;
+		}
+		myCharMove->MaxWalkSpeed = dashSpeed;
+		myCharMove->MaxAcceleration = dashAcel;
+		myCharMove->bOrientRotationToMovement = false;
+		myCharMove->AirControl = dashAirCtrl;
+	}
+	else {		
+		myCharMove->MaxWalkSpeed = normalSpeed;
+		myCharMove->MaxAcceleration = normalAcel;
+		myCharMove->bOrientRotationToMovement = true;
+		myCharMove->AirControl = normalAirCtrl;
+		if (mystate == evading || (dashDirH==0.0f && dashDirV == 1.0f)) {
+			mystate = idle;
+			myCharMove->Velocity *= (normalSpeed / dashSpeed);
+			dashDirH = 0.0f;
+			dashDirV = 0.0f;
+		}
+		if(startRecoverStamina > 0.0f && mytime-startRecoverStamina > recoverStaminaDelay && dashPower < 1.0f){
+			dashPower += dashPowerRate * DeltaTime;
+		}
+	}	
+	/*
+	//test rotation
+	if (player->WasInputKeyJustPressed(EKeys::R)) {
+		FRotator NewRotation = FRotator(0.0f, 90.0f, 0.0f);
+		FQuat QuatRotation = FQuat(NewRotation);
+		AddActorLocalRotation(QuatRotation, false, 0, ETeleportType::None);
+	}
+	*/
+
 	forthVec = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
 	rightVec = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 	vertIn = player->GetInputAnalogKeyState(vertical_Up) + (-1)*player->GetInputAnalogKeyState(vertical_Down);
 	horIn = player->GetInputAnalogKeyState(horizontal_R) + (-1)*player->GetInputAnalogKeyState(horizontal_L);
 	
+	if (!myAnimBP) return;
+	myAnimBP->inAir = inAir;
+	myAnimBP->dash = dashing;
+
+	myVel = GetVelocity();
+
+	if (lookInCamDir) {
+		myCharMove->bOrientRotationToMovement = false;
+		//using always the normal speed to normalize, so the dash animation is max out			
+		myAnimBP->speedv = 100.0f*(FVector::DotProduct(myVel, forthVec) / (dashAnimGain*normalSpeed));
+		myAnimBP->speedh = 100.0f*(FVector::DotProduct(myVel, rightVec) / (dashAnimGain*normalSpeed));
+	}
+	else {
+		myCharMove->bOrientRotationToMovement = true;
+		//using always the normal speed to normalize, so the dash animation is max out
+		myAnimBP->speedv = 100.0f*(FVector::VectorPlaneProject(myVel, FVector::UpVector).Size() / (dashAnimGain*normalSpeed));
+		myAnimBP->speedh = 0.0f;
+	}
+
 	//UE_LOG(LogTemp, Warning, TEXT("player state: %d | attackChain size: %d"), (int)mystate, attackChain.Num());
-	
+	/*
 	if (player->IsInputKeyDown(EKeys::I)) {
-		player->ProjectWorldLocationToScreen(mosquitos[0]->GetActorLocation(), targetScreenPos, false);
+		player->ProjectWorldLocationToScreen(mutations[0]->GetActorLocation(), targetScreenPos, false);
 		targetScreenPos.X /= width;
 		targetScreenPos.Y /= height;
-		UE_LOG(LogTemp, Warning, TEXT("target at: X: %f Y: %f"), targetScreenPos.X, targetScreenPos.Y);
+		FVector targetdir = mutations[0]->GetActorLocation() - GetActorLocation();
+		targetdir.Normalize();
+		const FRotator Rotation = Controller->GetControlRotation();
+		FVector forthVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::X);
+		float angle = FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(targetdir, forthVec)));
+		float angle2 = FMath::RadiansToDegrees(FMath::Acos(forthVec.CosineAngle2D(targetdir)));
+		UE_LOG(LogTemp, Warning, TEXT("target at: X: %f Y: %f|angle: %f| angle: %f"), targetScreenPos.X, targetScreenPos.Y, angle, angle2);
 	}
+	*/
+	/*
+	//array tests:
+	if (player->WasInputKeyJustPressed(EKeys::J)) {
+		mutations.RemoveAt(0);
+	}
+	if (player->WasInputKeyJustPressed(EKeys::K)) {
+		mutations.RemoveAt(1);
+	}
+	if (player->WasInputKeyJustPressed(EKeys::L)) {
+		mutations.RemoveAt(2);
+	}
+	*/
+
 	/*
 	//if (player->WasInputKeyJustPressed(player->PlayerInput->ActionMappings[7].Key))
 	//if(player->WasInputKeyJustPressed(EKeys::Y))
@@ -202,6 +338,9 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 	}
 	*/	
 
+	FVector targetDir;
+	float distToTarget;
+
 	switch (mystate){
 		case idle:
 			myCharMove->GravityScale = 1.0f;
@@ -217,7 +356,7 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 					
 				}
 				else {
-					//newMosquito = GWorld->SpawnActor<AMosquitoCharacter>(mosquitos[0]->GetClass(), SpawnPosition, FRotator::ZeroRotator, SpawnInfo);
+					//newMosquito = GWorld->SpawnActor<AMosquitoCharacter>(mutations[0]->GetClass(), SpawnPosition, FRotator::ZeroRotator, SpawnInfo);
 					// spawn new mosquito without blueprint
 					newMosquito = GWorld->SpawnActor<AMosquitoCharacter>(AMosquitoCharacter::StaticClass(), SpawnPosition, FRotator::ZeroRotator, SpawnInfo);					
 				}
@@ -229,32 +368,32 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 				else
 				{
 					// Failed to spawn actor!
-					GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Red, TEXT("failed to place new mosquito!"));
+					if (debugInfo)
+						GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Red, TEXT("failed to place new mosquito!"));
 				}
 			}
 			
 
-			if (player->WasInputKeyJustPressed(grabKey)){
+			if (player->WasInputKeyJustPressed(grabKey) && target_i>=0){				
 				//grab last mosquito
-				FVector mosquitoTarget = mosquitos[mosquitos.Num() - 1]->GetActorLocation() - GetActorLocation();				
-				
+				FVector mosquitoTarget = mutations[target_i]->GetActorLocation() - GetActorLocation();
 				FVector upVec = FRotationMatrix(myRotation).GetUnitAxis(EAxis::Z);
 
 				grabForth = mosquitoTarget.ProjectOnTo(forthVec).Size();
 				grabRight = mosquitoTarget.ProjectOnTo(rightVec).Size();
 				grabHeight = mosquitoTarget.ProjectOnTo(upVec).Size();
 			}
-			if (player->IsInputKeyDown(grabKey)){				
+			if (player->IsInputKeyDown(grabKey) && target_i>=0){			
 				FVector upVec = FRotationMatrix(myRotation).GetUnitAxis(EAxis::Z);
 
 				//hold last mosquito
 				FVector mosquitoPos = grabForth* forthVec + grabRight* rightVec + grabHeight* upVec+GetActorLocation();
-				mosquitos[mosquitos.Num() - 1]->SetActorLocation(mosquitoPos);
+				mutations[target_i]->SetActorLocation(mosquitoPos);
 				DrawDebugLine(world, GetActorLocation(), GetActorLocation() + forthVec*throwPower, FColor(255, 255, 0), true, 0.1f, 0, 5.0);
 			}
-			if (player->WasInputKeyJustReleased(grabKey)){
+			if (player->WasInputKeyJustReleased(grabKey) && target_i>=0){
 				//throw him
-				mosquitos[mosquitos.Num() - 1]->GetCharacterMovement()->Velocity = throwPower * forthVec;
+				mutations[target_i]->GetCharacterMovement()->Velocity = throwPower * forthVec;
 			}
 
 			if(player->WasInputKeyJustPressed(hookKey)){
@@ -272,7 +411,7 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 			}
 
 			Listen4Attack();
-			Listen4Move();
+			Listen4Move(DeltaTime);
 			Listen4Look();
 			Listen4Dash();
 			Reorient();
@@ -281,6 +420,7 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 			Advance();
 			Listen4Attack();
 			Listen4Look();
+			Listen4Dash();
 			if (updateAtkDir) {
 				if (lookInCamDir) {
 					Look2Dir(forthVec);
@@ -292,29 +432,38 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 			}			
 			break;
 		case hookFlying:
-			FVector targetDir = mosquitos[mosquitos.Num() - 1]->GetActorLocation() - GetActorLocation();
-			float distToTarget = targetDir.Size();
-			if( distToTarget < disengageHookDist)
-			{
-				flying = false;
-				myCharMove->MovementMode = MOVE_Walking;
-				myCharMove->MaxWalkSpeed = normalSpeed;
-				myCharMove->AirControl = normalAirCtrl;
-				myCharMove->GravityScale = 1.0f;
-				mystate = idle;
-			}
-			else
-			{
-				flying = true;
-				myCharMove->MovementMode = MOVE_Flying;
-				myCharMove->GravityScale = 0.0f;
-				myCharMove->MaxWalkSpeed = dashSpeed;
-				//AddMovementInput(targetDir, 1.0f);
-				myCharMove->Velocity = targetDir;
-				//myCharMove->Velocity = forthVec * throwPower;
-				myCharMove->AirControl = 0.0f;
+			if (target_i >= 0) {
+				targetDir = mutations[target_i]->GetActorLocation() - GetActorLocation();
+				distToTarget = targetDir.Size();
+				if (distToTarget < disengageHookDist)
+				{
+					flying = false;
+					myCharMove->MovementMode = MOVE_Walking;
+					myCharMove->MaxWalkSpeed = normalSpeed;
+					myCharMove->AirControl = normalAirCtrl;
+					myCharMove->GravityScale = 1.0f;
+					mystate = idle;
+				}
+				else
+				{
+					flying = true;
+					myCharMove->MovementMode = MOVE_Flying;
+					myCharMove->GravityScale = 0.0f;
+					myCharMove->MaxWalkSpeed = dashSpeed;
+					//AddMovementInput(targetDir, 1.0f);
+					myCharMove->Velocity = targetDir;
+					//myCharMove->Velocity = forthVec * throwPower;
+					myCharMove->AirControl = 0.0f;
+				}
 			}
 			Listen4Look();
+			Listen4Dash();
+			break;
+		case evading:
+			Listen4Look();
+			Listen4Dash();
+			MoveForward(dashDirV);
+			MoveRight(dashDirH);
 			break;
 	}	
 }
@@ -324,24 +473,26 @@ void AMyPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 {	
 	// Set up gameplay key bindings
 	check(PlayerInputComponent);
-	//PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
-	//PlayerInputComponent->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
-	//PlayerInputComponent->BindAction("Attack1", IE_Pressed,this, &AMyPlayerCharacter::Attack1Press);
-	//PlayerInputComponent->BindAction("Attack1", IE_Released, this, &AMyPlayerCharacter::Attack1Release);
-	//PlayerInputComponent->BindAction("Attack2", IE_Pressed, this, &AMyPlayerCharacter::Attack2Press);
-	//PlayerInputComponent->BindAction("Attack2", IE_Released, this, &AMyPlayerCharacter::Attack2Release);
+	/*
+	PlayerInputComponent->BindAction("Jump", IE_Pressed, this, &ACharacter::Jump);
+	PlayerInputComponent->BindAction("Jump", IE_Released, this, &ACharacter::StopJumping);
+	PlayerInputComponent->BindAction("Attack1", IE_Pressed,this, &AMyPlayerCharacter::Attack1Press);
+	PlayerInputComponent->BindAction("Attack1", IE_Released, this, &AMyPlayerCharacter::Attack1Release);
+	PlayerInputComponent->BindAction("Attack2", IE_Pressed, this, &AMyPlayerCharacter::Attack2Press);
+	PlayerInputComponent->BindAction("Attack2", IE_Released, this, &AMyPlayerCharacter::Attack2Release);
 
-	//PlayerInputComponent->BindAxis("MoveForward", this, &AMyPlayerCharacter::MoveForward);
-	//PlayerInputComponent->BindAxis("MoveRight", this, &AMyPlayerCharacter::MoveRight);
+	PlayerInputComponent->BindAxis("MoveForward", this, &AMyPlayerCharacter::MoveForward);
+	PlayerInputComponent->BindAxis("MoveRight", this, &AMyPlayerCharacter::MoveRight);
 	
-	// We have 2 versions of the rotation bindings to handle different kinds of devices differently
-	// "turn" handles devices that provide an absolute delta, such as a mouse.
-	// "turnrate" is for devices that we choose to treat as a rate of change, such as an analog joystick	
-	//PlayerInputComponent->BindAxis("TurnRate", this, &AMyPlayerCharacter::TurnAtRate);
-	//PlayerInputComponent->BindAxis("LookUpRate", this, &AMyPlayerCharacter::LookUpAtRate);
+	 We have 2 versions of the rotation bindings to handle different kinds of devices differently
+	 "turn" handles devices that provide an absolute delta, such as a mouse.
+	 "turnrate" is for devices that we choose to treat as a rate of change, such as an analog joystick	
+	PlayerInputComponent->BindAxis("TurnRate", this, &AMyPlayerCharacter::TurnAtRate);
+	PlayerInputComponent->BindAxis("LookUpRate", this, &AMyPlayerCharacter::LookUpAtRate);
 	
-	//PlayerInputComponent->BindAxis("Turn", this, &AMyPlayerCharacter::Turn);
-	//PlayerInputComponent->BindAxis("LookUp", this, &AMyPlayerCharacter::LookUp);	
+	PlayerInputComponent->BindAxis("Turn", this, &AMyPlayerCharacter::Turn);
+	PlayerInputComponent->BindAxis("LookUp", this, &AMyPlayerCharacter::LookUp);
+	*/
 }
 
 void AMyPlayerCharacter::Turn(float Rate)
@@ -369,13 +520,53 @@ void AMyPlayerCharacter::LookUpAtRate(float Rate)
 	AddControllerPitchInput(Rate * BaseLookUpRate * world->GetDeltaSeconds());
 }
 void AMyPlayerCharacter::Reorient(){
-	if (player->WasInputKeyJustPressed(targetLockKey)) {
-		startReorient = mytime;
+	if (player->WasInputKeyJustReleased(targetLockKey)) {
+		targetLocking = false;
+		if (lockTargetPersistent) {
+			if (!targetLockUpdated) {
+				targetLocked = false;
+			}			
+		}
+		else { targetLocked = false; }
 	}
-	if (player->IsInputKeyDown(targetLockKey)) {
-		
+	if (player->WasInputKeyJustPressed(targetLockKey)) {
+		targetLocking = true;
+		if(!lockTargetPersistent || !targetLocked) {
+			startReorient = mytime;
+			FindEnemy(0);
+			targetLocked = true;
+			targetLockUpdated = true;
+		}
+		else{
+			targetLockUpdated = false;
+		}
+	}
+	if (targetLocked){
+		if (lockTargetPersistent && targetLocking) {
+			if (player->WasInputKeyJustPressed(horizontal_L)) {
+				startReorient = mytime;
+				FindEnemy(3);
+				targetLockUpdated = true;
+			}
+			if (player->WasInputKeyJustPressed(horizontal_R)) {
+				startReorient = mytime;
+				FindEnemy(1);
+				targetLockUpdated = true;
+			}
+			if (player->WasInputKeyJustPressed(vertical_Up)) {
+				startReorient = mytime;
+				FindEnemy(2);
+				targetLockUpdated = true;
+			}
+			if (player->WasInputKeyJustPressed(vertical_Down)) {
+				startReorient = mytime;
+				FindEnemy(4);
+				targetLockUpdated = true;
+			}
+		}
+
 		FVector myLoc = GetActorLocation();
-		FVector targetLoc = mosquitos[0]->GetActorLocation();
+		FVector targetLoc = mutations[target_i]->GetActorLocation();
 							
 		FVector forthLoc = myLoc + (targetLoc - myLoc).Size()*forthVec;
 		
@@ -412,7 +603,7 @@ void AMyPlayerCharacter::Reorient(){
 	}
 	else {
 		myCharMove->bOrientRotationToMovement = true;
-	}
+	}	
 }
 void AMyPlayerCharacter::ReportNoise(USoundBase* SoundToPlay, float Volume)
 {
@@ -427,6 +618,101 @@ void AMyPlayerCharacter::ReportNoise(USoundBase* SoundToPlay, float Volume)
 		MakeNoise(Volume, this, GetActorLocation());
 	}
 
+}
+
+void AMyPlayerCharacter::FindEnemy(int locDir) {
+	//now find enemies	
+	float bestValue = 0.0f;	
+	float currValue;
+	
+	if (target_i >= 0) {
+		player->ProjectWorldLocationToScreen(mutations[target_i]->GetActorLocation(), targetScreenPos, false);
+		targetScreenPos.X /= width;
+		targetScreenPos.Y /= height;
+		switch (locDir) {
+		case 0://center
+			bestValue = FVector2D::Distance(targetScreenPos, FVector2D(0.5f, 0.5f));
+			break;
+		case 1://right
+			bestValue = targetScreenPos.X;
+			break;
+		case 2://up
+			bestValue = targetScreenPos.Y;
+			break;
+		case 3://left
+			bestValue = targetScreenPos.X;
+			break;
+		case 4://down
+			bestValue = targetScreenPos.Y;
+			break;
+		}
+	}
+	for (int i=0; i<mutations.Num(); ++i)
+	{
+			//check if inside the viewport
+			player->ProjectWorldLocationToScreen(mutations[i]->GetActorLocation(), targetScreenPos, false);
+			targetScreenPos.X /= width;
+			targetScreenPos.Y /= height;
+			
+			if ((targetScreenPos.X > 0.0f && targetScreenPos.X < 1.0f) && (targetScreenPos.Y > 0.0f && targetScreenPos.Y < 1.0f)) {
+				if (target_i == -1) {
+					target_i = i;					
+					switch (locDir) {
+					case 0://center
+						bestValue = FVector2D::Distance(targetScreenPos, FVector2D(0.5f, 0.5f));
+						break;
+					case 1://right
+						bestValue = targetScreenPos.X;
+						break;
+					case 2://up
+						bestValue = targetScreenPos.Y;
+						break;
+					case 3://left
+						bestValue = targetScreenPos.X;
+						break;
+					case 4://down
+						bestValue = targetScreenPos.Y;
+						break;
+					}
+				}
+				else {					
+					switch (locDir) {
+					case 0://center						
+						currValue = FVector2D::Distance(targetScreenPos, FVector2D(0.5f, 0.5f));
+						if (currValue < bestValue) {
+							bestValue = currValue;
+							target_i = i;
+						}
+						break;
+					case 1://right
+						if (targetScreenPos.X > bestValue) {
+							bestValue = targetScreenPos.X;
+							target_i = i;
+						}
+						break;
+					case 2://up
+						if (targetScreenPos.Y < bestValue) {
+							bestValue = targetScreenPos.Y;
+							target_i = i;
+						}
+						break;
+					case 3://left
+						if (targetScreenPos.X < bestValue) {
+							bestValue = targetScreenPos.X;
+							target_i = i;
+						}
+						break;
+					case 4://down
+						if (targetScreenPos.Y > bestValue) {
+							bestValue = targetScreenPos.Y;
+							target_i = i;
+						}
+						break;
+					}
+				}
+			}
+	}
+	
 }
 void AMyPlayerCharacter::Look2Dir(FVector LookDir) {
 	FVector myLoc = GetActorLocation();
@@ -467,22 +753,24 @@ void AMyPlayerCharacter::Attack2Press() {
 	atk2Hold = true;
 	/*
 	//test animation without blueprints
-	GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Orange, "[ComponentName]: " + GetMesh()->GetChildComponent(0)->GetName());
+	GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Orange, "[ComponentName]: " + myMesh->GetChildComponent(0)->GetName());
 	GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("attack2!"));
-	GetMesh()->PlayAnimation(attackList[1].myAnim, false);
+	myMesh->PlayAnimation(attackList[1].myAnim, false);
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::ResetAnims, 1.5f, false);
 	*/
 }
 void AMyPlayerCharacter::Attack1Release() {
 	if(atk1Hold){
 		if (mytime - startedHold1 < holdTimeMin) {
-			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("quick attack1 press"));
+			if (debugInfo)
+				GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("quick attack1 press"));
 			
 			AttackWalk(true);
 			CancelKnockDownPrepare(true);
 		}
 		else {
-			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("long attack1 press"));
+			if (debugInfo)
+				GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("long attack1 press"));
 			atk1Hold = false;
 			KnockDownHit(true);
 		}
@@ -491,13 +779,15 @@ void AMyPlayerCharacter::Attack1Release() {
 void AMyPlayerCharacter::Attack2Release() {
 	if (atk2Hold) {
 		if (mytime - startedHold2 < holdTimeMin) {
-			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("quick attack2 press"));
+			if (debugInfo)
+				GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("quick attack2 press"));
 			
 			AttackWalk(false);
 			CancelKnockDownPrepare(false);
 		}
 		else {
-			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("long attack2 press"));
+			if (debugInfo)
+				GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("long attack2 press"));
 			atk2Hold = false;
 			KnockDownHit(false);
 		}
@@ -512,10 +802,10 @@ void AMyPlayerCharacter::KnockDownHit(bool left) {
 
 	if(left){
 		//start the attack
-		GetMesh()->PlayAnimation(superHitL, false);
+		myMesh->PlayAnimation(superHitL, false);
 	}
 	else{
-		GetMesh()->PlayAnimation(superHitR, false);
+		myMesh->PlayAnimation(superHitR, false);
 	}
 	
 	//start next relax
@@ -571,8 +861,8 @@ void AMyPlayerCharacter::NextComboHit(){
 		atkChainIndex = 0;
 		airAttackLocked = true;
 		attackLocked = false;
-		
-		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::White, TEXT("reset attack chain"));
+		if(debugInfo)
+			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::White, TEXT("reset attack chain"));
 		Relax();
 	}
 	else {		
@@ -599,7 +889,7 @@ void AMyPlayerCharacter::NextComboHit(){
 		else{
 			advanceAtk = attackChain[atkIndex].advanceAtkValue;
 		}
-		GetMesh()->PlayAnimation(attackChain[atkIndex].myAnim, false);
+		myMesh->PlayAnimation(attackChain[atkIndex].myAnim, false);
 		atkChainIndex++;		
 
 		//call timer to start being lethal
@@ -609,13 +899,13 @@ void AMyPlayerCharacter::NextComboHit(){
 }
 void AMyPlayerCharacter::StartLethal(){
 	updateAtkDir = false;
-	Cast<UPrimitiveComponent>(GetMesh()->GetChildComponent(0))->SetGenerateOverlapEvents(true);
+	Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(true);
 	float time2NotLethal = attackChain[atkIndex].lethalTime*(attackChain[atkIndex].myAnim->SequenceLength / attackChain[atkIndex].speed);
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::StopLethal, time2NotLethal, false);
 }
 void AMyPlayerCharacter::StopLethal(){
 	advanceAtk = 0.0f;
-	Cast<UPrimitiveComponent>(GetMesh()->GetChildComponent(0))->SetGenerateOverlapEvents(false);
+	Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
 	float time4NextHit = (1-(attackChain[atkIndex].time2lethal+attackChain[atkIndex].lethalTime))*(attackChain[atkIndex].myAnim->SequenceLength / attackChain[atkIndex].speed)+ attackChain[atkIndex].coolDown;
 	atkIndex++;
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::NextComboHit, time4NextHit, false);
@@ -629,7 +919,8 @@ void AMyPlayerCharacter::Relax(){
 	mystate = idle;			
 	
 	world->GetTimerManager().ClearTimer(timerHandle);
-	GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Yellow, TEXT("relaxed!"));
+	if (debugInfo)
+		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Yellow, TEXT("relaxed!"));
 }
 void AMyPlayerCharacter::CancelKnockDownPrepare(bool left){
 	if(left){
@@ -644,15 +935,32 @@ void AMyPlayerCharacter::CancelKnockDownPrepare(bool left){
 		if (attackChain.Num() == 0) {
 			Relax();
 		}
-		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("knockDownAtk cancelled"));
+		if (debugInfo)
+			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("knockDownAtk cancelled"));
 	}
 }
+void AMyPlayerCharacter::CancelAttack() {
+	world->GetTimerManager().ClearTimer(timerHandle);
+	CancelKnockDownPrepare(true);
+	CancelKnockDownPrepare(false);
+	attackChain.Empty();
+	atkIndex = 0;
+	atkChainIndex = 0;
+	airAttackLocked = false;
+	attackLocked = false;
+	
+	//stop being lethal
+	Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
 
+	myMesh->Stop();
+	ResetAnims();
+}
 void AMyPlayerCharacter::ResetAnims(){
-	if (GetMesh()->GetAnimationMode() != EAnimationMode::AnimationBlueprint) {
-		GetMesh()->SetAnimationMode(EAnimationMode::AnimationBlueprint);
-		myAnimBP = Cast<UAnimComm>(GetMesh()->GetAnimInstance());
-		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("following the anim blueprint again!"));
+	if (myMesh->GetAnimationMode() != EAnimationMode::AnimationBlueprint) {
+		myMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+		myAnimBP = Cast<UAnimComm>(myMesh->GetAnimInstance());
+		if (debugInfo)
+			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("following the anim blueprint again!"));
 	}
 }
 
@@ -665,54 +973,44 @@ void AMyPlayerCharacter::ResetAttacks(){
 
 	myAnimBP->attackIndex = 0;
 	mystate = idle;
-	GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("entered ResetAttacks"));
+	if (debugInfo)
+		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("entered ResetAttacks"));
 
 	// Ensure the fuze timer is cleared by using the timer handle
-	world->GetTimerManager().ClearTimer(timerHandle);	
+	world->GetTimerManager().ClearTimer(timerHandle);
 }
 
 void AMyPlayerCharacter::Listen4Dash() {
-	if (player->IsInputKeyDown(dashKey)) {
-		myCharMove->MaxWalkSpeed = dashSpeed;
-		myCharMove->MaxAcceleration = dashAcel;
-		myCharMove->bOrientRotationToMovement = false;
-		myCharMove->AirControl = dashAirCtrl;
+	if (!dashing && player->WasInputKeyJustPressed(dashKey)) {
+		dashDesire = true;
+		dashStart = mytime;
 	}
-	else {
-		myCharMove->MaxWalkSpeed = normalSpeed;
-		myCharMove->MaxAcceleration = normalAcel;
-		myCharMove->bOrientRotationToMovement = true;
-		myCharMove->AirControl = normalAirCtrl;
+	if (player->WasInputKeyJustReleased(dashKey)) {
+		dashDesire = false;
 	}
 }
-void AMyPlayerCharacter::Listen4Move(){
+void AMyPlayerCharacter::Listen4Move(float DeltaTime){
 	if (player->WasInputKeyJustPressed(jumpKey))
 	{
-		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Yellow, TEXT("pressed jump key..."));
+		myAnimBP->jumped = true;
+		if (debugInfo)
+			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Yellow, TEXT("pressed jump key..."));
 		Jump();
 	}
 	if (player->WasInputKeyJustReleased(jumpKey))
 	{
+		myAnimBP->jumped = false;
 		StopJumping();
 	}				
 	MoveForward(vertIn);
-	MoveRight(horIn);
+	MoveRight(horIn);	
 
-	if (!myAnimBP) return;	
-	myAnimBP->inAir = inAir;
-	myVel = GetVelocity();
-
-	if (lookInCamDir) {
-		myCharMove->bOrientRotationToMovement = false;
-			
-		myAnimBP->speedv = 100.0f*(FVector::DotProduct(myVel, forthVec) / myCharMove->MaxWalkSpeed);
-		myAnimBP->speedh = 100.0f*(FVector::DotProduct(myVel, rightVec) / myCharMove->MaxWalkSpeed);
+	/*
+	//print speeds for animation
+	if (debugInfo) {
+		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Orange, FString::Printf(TEXT("[player anim] speedv: %f speedh: %f"), myAnimBP->speedv, myAnimBP->speedh));
 	}
-	else {
-		myCharMove->bOrientRotationToMovement = true;
-		myAnimBP->speedv = 100.0f*(FVector::VectorPlaneProject(myVel, FVector::UpVector).Size() / myCharMove->MaxWalkSpeed);
-		myAnimBP->speedh = 0.0f;
-	}	
+	*/
 }
 void AMyPlayerCharacter::Listen4Look(){
 	
@@ -753,9 +1051,9 @@ void AMyPlayerCharacter::Listen4Attack(){
 					//myAnimBP->knockDown = knockDownIndex;
 
 					//start the attack
-					GetMesh()->PlayAnimation(prepSuperHitL, false);
-
-					GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("knockDownAtk started"));
+					myMesh->PlayAnimation(prepSuperHitL, false);
+					if (debugInfo)
+						GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("knockDownAtk started"));
 				}
 			}
 			if (mytime - startedHold1 > holdTimeMax) {
@@ -773,9 +1071,9 @@ void AMyPlayerCharacter::Listen4Attack(){
 					//myAnimBP->knockDown = knockDownIndex;
 
 					//start the attack
-					GetMesh()->PlayAnimation(prepSuperHitR, false);
-
-					GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("knockDownAtk started"));
+					myMesh->PlayAnimation(prepSuperHitR, false);
+					if (debugInfo)
+						GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("knockDownAtk started"));
 				}
 			}
 			if (mytime - startedHold2 > holdTimeMax) {
@@ -799,7 +1097,7 @@ void AMyPlayerCharacter::Advance(){
 void AMyPlayerCharacter::OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
 	if(OtherActor!=NULL && OtherActor!=this && OtherComp != NULL){
-		if(GEngine){
+		if (debugInfo){
 			//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Red, FString::Printf(TEXT("I %s just hit: %s"), GetName(), *OtherActor->GetName()));
 			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Orange, "[player ComponentHit] my name: " + GetName()+"hit obj: "+ *OtherActor->GetName());
 		}
@@ -808,5 +1106,6 @@ void AMyPlayerCharacter::OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherAc
 
 void AMyPlayerCharacter::OnBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Green, "[player OverlapBegin] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
+	if (debugInfo)
+		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Green, "[player OverlapBegin] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
 }

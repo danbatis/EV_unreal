@@ -11,13 +11,12 @@ EBTNodeResult::Type UBTTask_UpdateGoals::ExecuteTask(UBehaviorTreeComponent& Own
 		
 	if (myCtrl->Char) {
 		myCtrl->SetDonePath(false);
-		myCtrl->SetReachedGoal(false);
-
+		
 		//do update the state on MutationChar
 		myCtrl->Char->mystate = targetstate;
-
+		
 		//UE_LOG(LogTemp, Warning, TEXT("mutation AI state: %s"), *myCtrl->StateName.ToString());
-		myCtrl->Char->NewGoal(flying);		
+		myCtrl->Char->NewGoal(flying);
 		
 		//UE_LOG(LogTemp, Warning, TEXT("moving to destination: %s"), *myCtrl->Char->patrolPoints[myCtrl->Char->patrol_i]->GetName());
 		return EBTNodeResult::Succeeded;

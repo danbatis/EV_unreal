@@ -54,6 +54,7 @@ public:
 	void SetInFightRange(bool InFightRange);
 	void SetDesperate(bool Desperate);
 	void SetReachedGoal(bool Reached);
+	void SetBlindSearch(bool Active);
 	
 	FVector GetGoal();
 

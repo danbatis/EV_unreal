@@ -15,6 +15,7 @@
 #include "Runtime/Engine/Classes/Kismet/KismetMathLibrary.h"
 #include "Engine.h"
 #include "MosquitoCharacter.h"
+#include "MutationChar.h"
 //#include "Runtime/Engine/Classes/Engine/World.h"
 #include "Runtime/Engine/Classes/Kismet/GameplayStatics.h"
 //#include "Runtime/Engine/Classes/Components/StaticMeshComponent.h"
@@ -25,6 +26,7 @@
 
 //forward declaration
 class AMosquitoCharacter;
+class AMutationChar;
 
 //basic node class for the attack tree
 USTRUCT(BlueprintType, Category = "Combat")
@@ -39,10 +41,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat") int rightNode;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat") float coolDown;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat") float advanceAtkValue;
+
 	FAtkNode* left;
 	FAtkNode* right;
 	
-	FAtkNode() { myAnim = NULL; speed = 2.0f; time2lethal = 0.1f; lethalTime = 0.8f; coolDown = 0.3f; advanceAtkValue = 1.0f; }
+	FAtkNode() { 
+		myAnim = NULL; 
+		speed = 2.0f; 
+		time2lethal = 0.1f; 
+		lethalTime = 0.8f; 
+		coolDown = 0.3f; 
+		advanceAtkValue = 1.0f;		
+	}
 };
 
 
@@ -104,6 +114,8 @@ public:
 	bool lethal;
 	FTimerHandle timerHandle;
 	PlayerStates mystate;
+	bool dashLocked;
+	bool evadeLock;
 	bool updateAtkDir;
 	bool inAir;
 	bool flying;
@@ -113,6 +125,7 @@ public:
 	float startedHold2;
 	float mytime;
 	float startReorient;
+	UPROPERTY(EditAnywhere, Category = Combat)bool debugInfo;
 	UPROPERTY(EditAnywhere, Category = Combat)float reorientTime;
 	UPROPERTY(EditAnywhere, Category = Combat)float msgTime;
 	UPROPERTY(EditAnywhere, Category = Combat)float holdTimeMin;
@@ -132,6 +145,18 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat) float disengageHookDist;
 	UPROPERTY(EditAnywhere, Category = Combat) float normalAirCtrl;
 	UPROPERTY(EditAnywhere, Category = Combat) float dashAirCtrl;
+	//to instantiate new mosquitos
+	UPROPERTY(EditAnywhere, Category = Combat) TSubclassOf<class AMosquitoCharacter> MosquitoClass;
+	UPROPERTY(EditAnywhere, Category = Combat) bool lookInCamDir;
+	UPROPERTY(EditAnywhere, Category = Combat) bool lockTargetPersistent = false;
+	UPROPERTY(EditAnywhere, Category = Combat) float dashAnimGain = 0.5f;
+	UPROPERTY(EditAnywhere, Category = Combat) float dashTime = 0.5f;
+	UPROPERTY(EditAnywhere, Category = Combat) float recoverStaminaDelay = 1.0f;
+	UPROPERTY(EditAnywhere, Category = Combat) float recoverStaminaRate = 0.5f;
+	UPROPERTY(EditAnywhere, Category = Combat) float evadeRate = 2.5f;
+	UPROPERTY(EditAnywhere, Category = Combat) float dashForthRate = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float dashPower = 1.0f;	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float life = 100.0f;
 
 	//input buttons
 	UPROPERTY(EditAnywhere, Category = Combat) FKey atk1Key;//square
@@ -160,14 +185,12 @@ public:
 	bool airAttackLocked;
 	UPROPERTY(EditAnywhere, Category = Combat) TArray<FAtkNode> attackList;
 	UPROPERTY(EditAnywhere, Category = Combat) TArray<FAtkNode> attackAirList;
-	//to instantiate new mosquitos
-	UPROPERTY(EditAnywhere, Category = Combat) TSubclassOf<class AMosquitoCharacter> MosquitoClass;
-	UPROPERTY(EditAnywhere, Category = Combat) bool lookInCamDir;
-	//to store all mosquitos in scene
-	TArray<AMosquitoCharacter*> mosquitos;
-
+	//to store all mutations in scene
+	TArray<AMutationChar*> mutations;
+	
 	UWorld* world;
 	UCharacterMovementComponent *myCharMove;
+	USkeletalMeshComponent * myMesh;
 	FRotator myRotation;
 	FRotator YawRotation;
 	float vertIn;
@@ -178,7 +201,7 @@ public:
 
 	float grabForth;
 	float grabRight;
-	float grabHeight;
+	float grabHeight;	
 
 	/*A Pawn Noise Emitter component which is used in order to emit the sounds to nearby AIs*/
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
@@ -194,7 +217,19 @@ private:
 	
 	INT32 width, height;
 	FVector2D targetScreenPos;
-
+	int target_i=-1;
+	bool targetLocked = false;
+	bool targetLockUpdated = false;
+	bool targetLocking = false;
+	bool dashing;
+	bool dashDesire;
+	
+	float dashStart;
+	float dashPowerRate;
+	float startRecoverStamina;
+	float dashDirH;
+	float dashDirV;
+	
 	/** Called for forwards/backward input */
 	void MoveForward(float Value);
 
@@ -221,6 +256,7 @@ private:
 	void NextComboHit();
 	void Relax();
 	void CancelKnockDownPrepare(bool left);
+	void CancelAttack();
 	void Attack2Press();
 	void ResetAnims();
 	void Attack2Release();
@@ -228,11 +264,12 @@ private:
 	void StopLethal();
 	void ResetAttacks();
 	void Listen4Dash();
-	void Listen4Move();
+	void Listen4Move(float DeltaTime);
 	void Listen4Attack();
 	void Advance();
 	void Listen4Look();
 	void Look2Dir(FVector LookDir);
+	void FindEnemy(int locDir);
 
 public:
 	/** Returns CameraBoom subobject **/
