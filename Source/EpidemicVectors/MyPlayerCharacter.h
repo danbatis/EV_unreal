@@ -21,12 +21,14 @@
 //#include "Runtime/Engine/Classes/Components/StaticMeshComponent.h"
 #include "AnimComm.h"
 #include "Perception/PawnSensingComponent.h"
+#include "VectorsGameStateBase.h"
 
 #include "MyPlayerCharacter.generated.h"
 
 //forward declaration
 class AMosquitoCharacter;
 class AMutationChar;
+class AVectorsGameStateBase;
 
 //basic node class for the attack tree
 USTRUCT(BlueprintType, Category = "Combat")
@@ -41,6 +43,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat") int rightNode;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat") float coolDown;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat") float advanceAtkValue;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat") bool knockDown;
 
 	FAtkNode* left;
 	FAtkNode* right;
@@ -51,7 +54,8 @@ public:
 		time2lethal = 0.1f; 
 		lethalTime = 0.8f; 
 		coolDown = 0.3f; 
-		advanceAtkValue = 1.0f;		
+		advanceAtkValue = 1.0f;
+		knockDown = false;
 	}
 };
 
@@ -65,10 +69,14 @@ public:
 
 	enum PlayerStates {
 		idle,
-		suffering,
-		attacking,
+		attacking,		
+		hookFlying,
 		evading,
-		hookFlying
+		suffering,
+		kdTakeOff,
+		kdFlight,
+		kdGround,
+		kdRise,
 	};	
 
 	// Sets default values for this character's properties
@@ -114,6 +122,9 @@ public:
 	bool lethal;
 	FTimerHandle timerHandle;
 	PlayerStates mystate;
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) FVector2D targetScreenPos;
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) FColor crossHairColor;
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) FVector2D targetScreenPosAbs;
 	bool dashLocked;
 	bool evadeLock;
 	bool updateAtkDir;
@@ -131,9 +142,11 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat)float holdTimeMin;
 	UPROPERTY(EditAnywhere, Category = Combat)float holdTimeMax;
 	float advanceAtk;
+	float recoilValue;
 	int knockDownIndex;
 	int atkIndex;
 	int atkChainIndex;
+	bool knockingDown;
 	
 	UPROPERTY(EditAnywhere, Category = Movement) float normalSpeed;
 	UPROPERTY(EditAnywhere, Category = Movement) float dashSpeed;
@@ -149,14 +162,31 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat) TSubclassOf<class AMosquitoCharacter> MosquitoClass;
 	UPROPERTY(EditAnywhere, Category = Combat) bool lookInCamDir;
 	UPROPERTY(EditAnywhere, Category = Combat) bool lockTargetPersistent = false;
+	UPROPERTY(EditAnywhere, Category = Combat) float heightOffset_tgtLock = 100.0f;
+	UPROPERTY(EditAnywhere, Category = Combat) float targetHeightTol = 1000.0f;
+	UPROPERTY(EditAnywhere, Category = Combat) float grappleTol = 0.1f;
 	UPROPERTY(EditAnywhere, Category = Combat) float dashAnimGain = 0.5f;
 	UPROPERTY(EditAnywhere, Category = Combat) float dashTime = 0.5f;
+	UPROPERTY(EditAnywhere, Category = Combat) float hookRange = 1500.0f;
 	UPROPERTY(EditAnywhere, Category = Combat) float recoverStaminaDelay = 1.0f;
 	UPROPERTY(EditAnywhere, Category = Combat) float recoverStaminaRate = 0.5f;
 	UPROPERTY(EditAnywhere, Category = Combat) float evadeRate = 2.5f;
-	UPROPERTY(EditAnywhere, Category = Combat) float dashForthRate = 0.5f;
+	UPROPERTY(EditAnywhere, Category = Combat) float dashForthRate = 0.5f; 
+	UPROPERTY(EditAnywhere, Category = Combat) float attackNormalPower = 10.0f;
+	UPROPERTY(EditAnywhere, Category = Combat) float attackKDPower = 20.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float dashPower = 1.0f;	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float life = 100.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float damageTime = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float takeOffTime = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float recoverTime = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float fastRecoverSpeedTarget = 100.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float riseTime = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float seesawRiseTime = 0.6f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float spinRiseTime = 0.8f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float riseAtkCoolDown = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float throwHookTime = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float hitPause = 0.01f;
+
 
 	//input buttons
 	UPROPERTY(EditAnywhere, Category = Combat) FKey atk1Key;//square
@@ -175,19 +205,20 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat) FKey horizontalCam;
 	UPROPERTY(EditAnywhere, Category = Combat) FKey verticalCam;	
 	//knockdown animations
-	UPROPERTY(EditAnywhere, Category = Combat) UAnimSequence *prepSuperHitL;
-	UPROPERTY(EditAnywhere, Category = Combat) UAnimSequence *superHitL;
-	UPROPERTY(EditAnywhere, Category = Combat) UAnimSequence *prepSuperHitR;	
-	UPROPERTY(EditAnywhere, Category = Combat) UAnimSequence *superHitR;
+	UPROPERTY(EditAnywhere, Category = Combat) FAtkNode prepSuperHitL;
+	UPROPERTY(EditAnywhere, Category = Combat) FAtkNode superHitL;
+	UPROPERTY(EditAnywhere, Category = Combat) FAtkNode prepSuperHitR;
+	UPROPERTY(EditAnywhere, Category = Combat) FAtkNode superHitR;
 	//combo variables
 	TArray<FAtkNode> attackChain;
 	bool attackLocked;
 	bool airAttackLocked;
+	float attackPower;
 	UPROPERTY(EditAnywhere, Category = Combat) TArray<FAtkNode> attackList;
 	UPROPERTY(EditAnywhere, Category = Combat) TArray<FAtkNode> attackAirList;
-	//to store all mutations in scene
-	TArray<AMutationChar*> mutations;
 	
+	AVectorsGameStateBase *myGameState;
+		
 	UWorld* world;
 	UCharacterMovementComponent *myCharMove;
 	USkeletalMeshComponent * myMesh;
@@ -198,6 +229,7 @@ public:
 	FVector forthVec;
 	FVector rightVec;
 	FVector myVel;
+	FVector damageDir;
 
 	float grabForth;
 	float grabRight;
@@ -215,14 +247,21 @@ private:
 	APlayerController* player;
 	FAtkNode* atkWalker;
 	
-	INT32 width, height;
-	FVector2D targetScreenPos;
-	int target_i=-1;
+	INT32 width, height;	
+	int grapleTarget_i = -1;
+	int grabTarget_i = -1;
+	int target_i = -1;
+	bool aiming;
+	float grappleValue;
 	bool targetLocked = false;
 	bool targetLockUpdated = false;
 	bool targetLocking = false;
+	FRotator lookToTarget;
+	FVector myLoc;
+	FVector targetLoc;
 	bool dashing;
 	bool dashDesire;
+	bool arising;
 	
 	float dashStart;
 	float dashPowerRate;
@@ -270,7 +309,15 @@ private:
 	void Listen4Look();
 	void Look2Dir(FVector LookDir);
 	void FindEnemy(int locDir);
-
+	void DelayedStabilize();
+	void Stabilize();
+	void MyDamage(float DamagePower, bool KD, bool Spiral);
+	void DelayedKDtakeOff();
+	void DelayedKDground();
+	void DelayedAtkRise();
+	void DelayedHookPull();
+	void KnockDownFlight();
+	void Death();
 public:
 	/** Returns CameraBoom subobject **/
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
@@ -282,5 +329,4 @@ private:
 		void OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
 	UFUNCTION()
 		 void OnBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
-	
 };

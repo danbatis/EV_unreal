@@ -100,7 +100,18 @@ void AMutationChar::Tick(float DeltaTime)
 		
 	mytime += DeltaTime;
 
-	inAir = GetMovementComponent()->IsFalling();	
+	inAir = GetMovementComponent()->IsFalling();
+	if(!inAir && mystate == MutationStates::kdFlight && recoilPortion == 0.0f){
+		if (!kdrecovering) {
+			kdrecovering = true;
+			//hit the ground
+			mystate = MutationStates::kdGround;
+			myAnimBP->damage = 11;
+			//start delayed rise
+			float hitgroundTime = 0.5f;
+			GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::DelayedKDRise, hitgroundTime, false);
+		}
+	}
 	myController->SetAirborne(inAir||flying);
 	myAnimBP->inAir = inAir || flying;
 	/*
@@ -145,7 +156,6 @@ void AMutationChar::Tick(float DeltaTime)
 		case MutationStates::pursuit:	
 			Navigating(DeltaTime);
 			break;
-		
 		case MutationStates::attacking:
 			if ((Controller != NULL) && (advanceAtk != 0.0f))
 			{
@@ -153,7 +163,6 @@ void AMutationChar::Tick(float DeltaTime)
 				moveDir = GetActorForwardVector();
 				AddMovementInput(moveDir, advanceAtk);
 			}
-			
 		break;
 		case MutationStates::suffering:			
 			moveDir = GetActorForwardVector();
@@ -177,7 +186,29 @@ void AMutationChar::Tick(float DeltaTime)
 			targetPos = myTarget->GetActorLocation();
 			LookTo(targetPos);
 			//CheckRange();
-			break;	
+			break;
+		case MutationStates::kdFlight:
+			if (Controller != NULL)
+			{
+				//set takeoff speed at 45 degrees, approximately sqrt(2)/2
+				moveDir = 0.7f*FVector::UpVector - GetActorForwardVector();
+				AddMovementInput(moveDir, recoilPortion);
+			}
+			break;
+		case MutationStates::heightRoll:
+			//rotate
+			FRotator NewRotation = FRotator(heightRollSpeed*DeltaTime, 0.0f, 0.0f);
+			FQuat QuatRotation = FQuat(NewRotation);
+			AddActorLocalRotation(QuatRotation, false, 0, ETeleportType::None);
+			//go to player's height
+			moveDir = (-1)*FVector::UpVector;
+			AddMovementInput(moveDir, 1.0f);
+			//if finished roll, resume
+			moveDir = FVector::VectorPlaneProject(GetActorForwardVector(), FVector::UpVector);
+			if(FMath::Acos(FVector::DotProduct(moveDir, GetActorForwardVector())) < heightRollTol){
+				ResetFightAnims();
+			}
+			break;
 	}
 	
 
@@ -220,13 +251,15 @@ void AMutationChar::OnHearNoise(APawn* PawnInstigator, const FVector& Location, 
 			
 			distToTarget = FVector::Distance(GetActorLocation(), targetPos);
 			inFightRange = distToTarget < fightRange;
-			if (inFightRange && mystate != MutationStates::fight) {
-				mystate = MutationStates::fight;
-				myController->SetInFightRange(inFightRange);
-				PawnSensingComp->SetActive(!inFightRange);
-				PawnSensingComp->SetSensingUpdatesEnabled(!inFightRange);
-				PawnSensingComp->bSeePawns = !inFightRange;
-				PawnSensingComp->bHearNoises = !inFightRange;
+			if (inFightRange){
+				if (mystate != MutationStates::fight && mystate != MutationStates::approach && mystate != MutationStates::evading && mystate != MutationStates::attacking) {
+					mystate = MutationStates::fight;
+					myController->SetInFightRange(inFightRange);
+					PawnSensingComp->SetActive(!inFightRange);
+					PawnSensingComp->SetSensingUpdatesEnabled(!inFightRange);
+					PawnSensingComp->bSeePawns = !inFightRange;
+					PawnSensingComp->bHearNoises = !inFightRange;
+				}
 			}
 			else { 
 				StartTraverse(); 
@@ -260,15 +293,17 @@ void AMutationChar::OnSeenTarget(APawn* PawnInstigator)
 			
 			distToTarget = FVector::Distance(GetActorLocation(), targetPos);
 			inFightRange = distToTarget < fightRange;
-			if (inFightRange && mystate != MutationStates::fight) {
-				mystate = MutationStates::fight;
-				myController->SetInFightRange(inFightRange);
-				PawnSensingComp->SetActive(!inFightRange);
-				PawnSensingComp->SetSensingUpdatesEnabled(!inFightRange);
-				PawnSensingComp->bSeePawns = !inFightRange;
-				PawnSensingComp->bHearNoises = !inFightRange;
+			if (inFightRange) {
+				if (mystate != MutationStates::fight && mystate != MutationStates::approach && mystate != MutationStates::evading && mystate != MutationStates::attacking) {
+					mystate = MutationStates::fight;
+					myController->SetInFightRange(inFightRange);
+					PawnSensingComp->SetActive(!inFightRange);
+					PawnSensingComp->SetSensingUpdatesEnabled(!inFightRange);
+					PawnSensingComp->bSeePawns = !inFightRange;
+					PawnSensingComp->bHearNoises = !inFightRange;
+				}
 			}
-			else{
+			else {
 				StartTraverse();
 			}
 		}
@@ -300,7 +335,7 @@ bool AMutationChar::CheckRange()
 		if (mystate != MutationStates::fight) {
 			
 			//calculating what direction to rotate to face player
-			FVector targetDir = targetPos - GetActorLocation();
+			FVector targetDir = myTarget->GetActorLocation() - GetActorLocation();
 			targetDir.Normalize();
 			FVector pseudoUp = FVector::CrossProduct(GetActorForwardVector(), targetDir);
 			if(FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(pseudoUp, FVector::UpVector))) < 90)
@@ -530,6 +565,7 @@ void AMutationChar::Navigating(float DeltaTime){
 }
 void AMutationChar::StartTraverse() {
 	moveMode = MoveModes::traversing;
+	
 	//oldTargetDist = -1.0f;
 	startMoveTimer = mytime;
 	UE_LOG(LogTemp, Warning, TEXT("[mutation %s] Starting traverse"),*GetName());
@@ -564,6 +600,7 @@ void AMutationChar::StartTraverse() {
 }
 void AMutationChar::ArrivedAtGoal()
 {
+	myController->SetGoal(targetPos);
 	if (myCharMove->IsMovingOnGround()) {
 		flying = false;
 		myController->SetAirborne(false);
@@ -620,13 +657,20 @@ void AMutationChar::MutationFight(float DeltaTime) {
 
 	//find the angle between player and mutation
 	targetPos = myTarget->GetActorLocation();
-	FVector targetDir = targetPos - GetActorLocation();
+	FVector mypos = GetActorLocation();
+	FVector targetDir = targetPos - mypos;
 	targetDir.Normalize();
 	float facingAngle = FMath::RadiansToDegrees(FMath::Acos(targetDir.CosineAngle2D(GetActorForwardVector())));
 	if (facingAngle < faceTolerance) {
-		if (CheckRange()) {
+		if(CheckRange()){
 			if (distToTarget < strikeDistance) {
-				CombatAction(0);
+				//height roll
+				if(mypos.Z > targetPos.Z + rollTolHeight){
+					CombatAction(3);
+				}
+				else{
+					CombatAction(0);
+				}
 			}
 			else {
 				if (distToTarget < 2 * strikeDistance) {
@@ -658,9 +702,8 @@ void AMutationChar::CombatAction(int near_i){
 			case 0://close combat
 				attackConnected = false;
 				//look in player's direction right before first attack
-				targetPos = myTarget->GetActorLocation();
-				LookTo(targetPos);
-
+				//targetPos = myTarget->GetActorLocation();
+				//LookTo(targetPos);
 				MeleeAttack();
 				break;
 			case 1://middle range attacks
@@ -674,6 +717,9 @@ void AMutationChar::CombatAction(int near_i){
 					Approach();
 				else
 					DashSideways();
+				break;
+			case 3:
+				mystate = MutationStates::heightRoll;
 				break;
 			default:
 				GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("[Mutation] combatAction ID not recognized!"));
@@ -689,8 +735,10 @@ void AMutationChar::CombatAction(int near_i){
 
 void AMutationChar::StartLethal() {
 	advanceAtk = atkWalker->advanceAtkValue;
+	knockingDown = atkWalker->knockDown;
 	if(myMesh->GetChildComponent(0))
 		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(true);
+
 	float time2NotLethal = atkWalker->lethalTime*(1 - atkWalker->telegraphPortion)*(atkWalker->myAnim->SequenceLength / atkWalker->speed);
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::StopLethal, time2NotLethal, false);
 }
@@ -700,7 +748,18 @@ void AMutationChar::StopLethal() {
 	//reset speeds that were changed on the SpiralAttack
 	myCharMove->MaxWalkSpeed = normalSpeed;
 	myCharMove->MaxAcceleration = normalAcel;
+	myCharMove->MaxFlySpeed = normalSpeed;
 	advanceAtk = 0.0f;
+	myCharMove->Velocity *= 0.0f;
+
+	//reset orientation
+	//find forward projection on floor
+	FVector projForth = FVector::VectorPlaneProject(GetActorForwardVector(), FVector::UpVector);
+	FVector forthPos = GetActorLocation() + projForth;
+	FRotator lookToRot = UKismetMathLibrary::FindLookAtRotation(GetActorLocation(), forthPos);
+	const FRotator lookToYaw(0, lookToRot.Yaw, 0);	
+	SetActorRotation(lookToYaw);
+
 	if (myMesh->GetChildComponent(0))
 		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
 	float time4NextHit = (1 - (atkWalker->time2lethal + atkWalker->lethalTime))*(1-atkWalker->telegraphPortion)*(atkWalker->myAnim->SequenceLength / atkWalker->speed) + atkWalker->coolDown;
@@ -735,9 +794,14 @@ void AMutationChar::IdleWait(float WaitTime) {
 }
 void AMutationChar::MeleeAttack() {
 	UE_LOG(LogTemp, Warning, TEXT("mutation %s in meleeAttack"), *GetName());
+	spiralAtk = false;
 	mystate = MutationStates::attacking;
 	//myController->StopBT();
 	myMesh->Stop();
+
+	//look in player's direction right before first attack
+	targetPos = myTarget->GetActorLocation();
+	LookTo(targetPos);
 
 	myCharMove->StopActiveMovement();
 	myController->StopMovement();
@@ -745,17 +809,25 @@ void AMutationChar::MeleeAttack() {
 
 	myMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 	myMesh->PlayAnimation(atkWalker->myAnim, false);
-	StartLethal();
+
+	float time2Lethal = atkWalker->time2lethal*(atkWalker->myAnim->SequenceLength / atkWalker->speed);
+	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::StartLethal, time2Lethal, false);
 }
 void AMutationChar::SpiralAttack() {
 	UE_LOG(LogTemp, Warning, TEXT("mutation %s in spiral attack"), *GetName());
+	spiralAtk = true;
 	myCharMove->MaxWalkSpeed = spiralSpeed;	
 	myCharMove->MaxAcceleration = spiralAcel;
+	myCharMove->MaxFlySpeed = spiralSpeed;
+	
 	mystate = MutationStates::attacking;
 	//myController->StopBT();
 	myMesh->Stop();
 	targetPos = myTarget->GetActorLocation();
-	LookTo(targetPos);
+	//LookTo(targetPos);
+	FRotator lookToRot = UKismetMathLibrary::FindLookAtRotation(GetActorLocation(), targetPos);
+	SetActorRotation(lookToRot);
+
 	myCharMove->StopActiveMovement();
 	myController->StopMovement();
 	myCharMove->Velocity *= 0;
@@ -823,28 +895,23 @@ void AMutationChar::CancelAttack() {
 		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
 }
 
-void AMutationChar::MyDamage(float DamagePower, FVector AlgozPos) {
+void AMutationChar::MyDamage(float DamagePower, FVector AlgozPos, bool KD) {
 	if (debugInfo) {
 		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Blue, "[Mutation] damaged: "+GetName());
 	}
 	UE_LOG(LogTemp, Warning, TEXT("mutation %s in damage"), *GetName());
 	//stop the traversing
 	donePath = true;
-
-	mystate = MutationStates::suffering;
+		
 	CancelAttack();
 	myCharMove->StopActiveMovement();
 	myController->StopMovement();
 	myCharMove->Velocity *= 0;
-	myCharMove->bOrientRotationToMovement = false;
+	myCharMove->bOrientRotationToMovement = false;	
 	
 	//look to your algoz
 	LookTo(AlgozPos);
 	
-	recoilPortion = 1.0f;
-	
-	//play damage sound
-
 	if (life - DamagePower < desperateLifeLevel && life >= desperateLifeLevel) {
 		myController->SetDesperate(true);
 		becomeDesperate = true;
@@ -852,28 +919,74 @@ void AMutationChar::MyDamage(float DamagePower, FVector AlgozPos) {
 
 	life -= DamagePower;
 	if (life <= 0)
-		Death();	
-	
+		Death();
+
 	//play damage animation
 	myMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
 	myAnimBP = Cast<UMutationAnimComm>(myMesh->GetAnimInstance());
-	if (FMath::RandRange(0, 10) < 5)
-		myAnimBP->damage = 1;
-	else
-		myAnimBP->damage = 2;
 
-	UGameplayStatics::SetGlobalTimeDilation(world, 0.1f);
-	//start stabilize timer
-	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::DelayedStabilize, hitPauseDuration, false);
+	if (KD) {
+		mystate = MutationStates::kdFlight;
+		kdrecovering = true;
+		recoilPortion = 1.0f;
+		flying = false;
+		myCharMove->MovementMode = MOVE_Flying;
+
+		
+		//play damage sound
+
+		myAnimBP->damage = 10;
+
+		//hit pause, or, in this case, time dilation
+		UGameplayStatics::SetGlobalTimeDilation(world, 0.1f);
+		//start stabilize timer
+		GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::DelayedStartKDtakeOff, hitPauseDuration, false);
+	}
+	else {
+		mystate = MutationStates::suffering;
+		recoilPortion = 1.0f;
+
+		//play damage sound
+				
+	
+		if (FMath::RandRange(0, 10) < 5)
+			myAnimBP->damage = 1;
+		else
+			myAnimBP->damage = 2;
+	
+		//hit pause, or, in this case, time dilation
+		UGameplayStatics::SetGlobalTimeDilation(world, 0.1f);
+		//start stabilize timer
+		GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::DelayedStabilize, hitPauseDuration, false);
+	}	
 }
 void AMutationChar::Death() {
 	if (debugInfo) {
 		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, "[Mutation %s] is dead"+GetName());
 	}
 }
+void AMutationChar::DelayedStartKDtakeOff() {
+	UGameplayStatics::SetGlobalTimeDilation(world, 1.0f);
+	recoilPortion = 1.0f;
+	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::DelayedStartKDFlight, knockDownTakeOffTime, false);
+}
+void AMutationChar::DelayedStartKDFlight() {
+	//here the mutation starts falling	
+	myCharMove->MovementMode = MOVE_Walking;
+	kdrecovering = false;
+	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::DelayedStartKDFall, 0.5f, false);
+}
+void AMutationChar::DelayedStartKDFall() {
+	recoilPortion = 0.0f;
+}
 void AMutationChar::DelayedStabilize() {
 	UGameplayStatics::SetGlobalTimeDilation(world, 1.0f);
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::Stabilize, damageTime, false);
+}
+void AMutationChar::DelayedKDRise() {
+	myAnimBP->damage = 12;
+	mystate = MutationStates::kdRise;
+	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::Stabilize, KDriseTime, false);
 }
 void AMutationChar::Stabilize() {
 	UE_LOG(LogTemp, Warning, TEXT("[mutation] recovered from damage"));
@@ -908,14 +1021,16 @@ void AMutationChar::OnOverlapEnd(UPrimitiveComponent* OverlappedComponent, AActo
 	if (OtherActor && (OtherActor != this) && OtherComp)
 	{
 		myTarget = Cast<AMyPlayerCharacter>(OtherActor);
+		
+		if (myTarget) {
+			if (mystate != MutationStates::suffering && mystate != MutationStates::kdFlight) {
+				MyDamage(myTarget->attackPower, myTarget->GetActorLocation(), myTarget->knockingDown);
+			}
 
-		if (mystate != MutationStates::suffering) {
-			MyDamage(10.0f, myTarget->GetActorLocation());
-		}
-
-		if (debugInfo) {
-			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Black, "[OverlapEnd] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
-			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, FString::Printf(TEXT("[algoz] %d"), myTarget->mystate));
+			if (debugInfo) {
+				GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Black, "[OverlapEnd] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
+				GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, FString::Printf(TEXT("[algoz] %d"), myTarget->mystate));
+			}
 		}
 	}
 }

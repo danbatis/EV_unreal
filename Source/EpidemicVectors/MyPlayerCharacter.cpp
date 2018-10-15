@@ -64,7 +64,8 @@ void AMyPlayerCharacter::BeginPlay()
 	//getting my basic animation blueprint communication class
 	myMesh = GetMesh();
 	myAnimBP = Cast<UAnimComm>(myMesh->GetAnimInstance());
-	Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
+	if (myMesh->GetChildComponent(0))
+		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
 
 	world = GetWorld();
 	player = UGameplayStatics::GetPlayerController(world, 0);//crashes if in the constructor	
@@ -146,17 +147,8 @@ void AMyPlayerCharacter::BeginPlay()
 	
 	//to signal there is no target selected or locked
 	target_i = -1;
-	//find enemies
-	for (TActorIterator<AMutationChar> it(world, AMutationChar::StaticClass()); it; ++it)
-	{
-		AMutationChar* actor = *it;
-		if (actor != NULL) {
-			if (debugInfo)
-				GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::White, "Mutation found name: " + actor->GetName());	
-
-			mutations.Add(actor);			
-		}
-	}
+	myGameState = Cast<AVectorsGameStateBase>(world->GetGameState());
+	GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow, "Finished beginPlay on player.");
 }
 
 // Called every frame
@@ -164,6 +156,9 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	
+	if (debugInfo)
+		GEngine->AddOnScreenDebugMessage(-1, 0.01f, FColor::Blue, FString::Printf(TEXT("[playerState: %d"), mystate));
+
 	mytime += DeltaTime;
 	inAir = GetMovementComponent()->IsFalling() || flying;
 	if(!inAir) {
@@ -276,7 +271,7 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 	myAnimBP->dash = dashing;
 
 	myVel = GetVelocity();
-
+	
 	if (lookInCamDir) {
 		myCharMove->bOrientRotationToMovement = false;
 		//using always the normal speed to normalize, so the dash animation is max out			
@@ -291,12 +286,18 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 	}
 
 	//UE_LOG(LogTemp, Warning, TEXT("player state: %d | attackChain size: %d"), (int)mystate, attackChain.Num());
+
+	/*
+	if (player->WasInputKeyJustPressed(EKeys::O)) {
+		GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, "[gamestate]first Mutation found name: " + myGameState->mutations[0]->GetName());
+	}
+	*/
 	/*
 	if (player->IsInputKeyDown(EKeys::I)) {
-		player->ProjectWorldLocationToScreen(mutations[0]->GetActorLocation(), targetScreenPos, false);
+		player->ProjectWorldLocationToScreen(myGameState->mutations[target_i]->GetActorLocation(), targetScreenPos, false);
 		targetScreenPos.X /= width;
 		targetScreenPos.Y /= height;
-		FVector targetdir = mutations[0]->GetActorLocation() - GetActorLocation();
+		FVector targetdir = myGameState->mutations[target_i]->GetActorLocation() - GetActorLocation();
 		targetdir.Normalize();
 		const FRotator Rotation = Controller->GetControlRotation();
 		FVector forthVec = FRotationMatrix(Rotation).GetUnitAxis(EAxis::X);
@@ -305,16 +306,18 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 		UE_LOG(LogTemp, Warning, TEXT("target at: X: %f Y: %f|angle: %f| angle: %f"), targetScreenPos.X, targetScreenPos.Y, angle, angle2);
 	}
 	*/
+	
+	
 	/*
 	//array tests:
 	if (player->WasInputKeyJustPressed(EKeys::J)) {
-		mutations.RemoveAt(0);
+		myGameState->mutations.RemoveAt(0);
 	}
 	if (player->WasInputKeyJustPressed(EKeys::K)) {
-		mutations.RemoveAt(1);
+		myGameState->mutations.RemoveAt(1);
 	}
 	if (player->WasInputKeyJustPressed(EKeys::L)) {
-		mutations.RemoveAt(2);
+		myGameState->mutations.RemoveAt(2);
 	}
 	*/
 
@@ -341,130 +344,263 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 	FVector targetDir;
 	float distToTarget;
 
-	switch (mystate){
-		case idle:
-			myCharMove->GravityScale = 1.0f;
-			
-			if(player->WasInputKeyJustPressed(EKeys::T)){
-				const FVector SpawnPosition = GetActorLocation() + GetActorForwardVector()*50.0f;
-				FActorSpawnParameters SpawnInfo;
-								
-				AMosquitoCharacter* newMosquito;
-				if (player->IsInputKeyDown(EKeys::B)) {
-					// spawn new mosquito using blueprint
-					newMosquito = GWorld->SpawnActor<AMosquitoCharacter>(MosquitoClass, SpawnPosition, FRotator::ZeroRotator, SpawnInfo);
-					
+	switch (mystate) {
+	case idle:
+		myCharMove->GravityScale = 1.0f;
+
+		if (player->WasInputKeyJustPressed(EKeys::T)) {
+			const FVector SpawnPosition = GetActorLocation() + GetActorForwardVector()*50.0f;
+			FActorSpawnParameters SpawnInfo;
+
+			AMosquitoCharacter* newMosquito;
+			if (player->IsInputKeyDown(EKeys::B)) {
+				// spawn new mosquito using blueprint
+				newMosquito = GWorld->SpawnActor<AMosquitoCharacter>(MosquitoClass, SpawnPosition, FRotator::ZeroRotator, SpawnInfo);
+
+			}
+			else {
+				//newMosquito = GWorld->SpawnActor<AMosquitoCharacter>(myGameState->mutations[0]->GetClass(), SpawnPosition, FRotator::ZeroRotator, SpawnInfo);
+				// spawn new mosquito without blueprint
+				newMosquito = GWorld->SpawnActor<AMosquitoCharacter>(AMosquitoCharacter::StaticClass(), SpawnPosition, FRotator::ZeroRotator, SpawnInfo);
+			}
+
+			if (newMosquito != NULL)
+			{
+				DrawDebugLine(world, GetActorLocation(), SpawnPosition, FColor(0, 255, 0), true, -1, 0, 5.0);
+			}
+			else
+			{
+				// Failed to spawn actor!
+				if (debugInfo)
+					GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Red, TEXT("failed to place new mosquito!"));
+			}
+		}
+
+
+		if (player->WasInputKeyJustPressed(grabKey) && target_i >= 0) {
+			//grab last mosquito
+			FVector mosquitoTarget = myGameState->mutations[target_i]->GetActorLocation() - GetActorLocation();
+			FVector upVec = FRotationMatrix(myRotation).GetUnitAxis(EAxis::Z);
+
+			grabForth = mosquitoTarget.ProjectOnTo(forthVec).Size();
+			grabRight = mosquitoTarget.ProjectOnTo(rightVec).Size();
+			grabHeight = mosquitoTarget.ProjectOnTo(upVec).Size();
+		}
+		if (player->IsInputKeyDown(grabKey) && target_i >= 0) {
+			FVector upVec = FRotationMatrix(myRotation).GetUnitAxis(EAxis::Z);
+
+			//hold last mosquito
+			FVector mosquitoPos = grabForth * forthVec + grabRight * rightVec + grabHeight * upVec + GetActorLocation();
+			myGameState->mutations[target_i]->SetActorLocation(mosquitoPos);
+			DrawDebugLine(world, GetActorLocation(), GetActorLocation() + forthVec * throwPower, FColor(255, 255, 0), true, 0.1f, 0, 5.0);
+		}
+		if (player->WasInputKeyJustReleased(grabKey) && target_i >= 0) {
+			//throw him
+			myGameState->mutations[target_i]->GetCharacterMovement()->Velocity = throwPower * forthVec;
+		}
+
+		if (player->WasInputKeyJustPressed(hookKey)) {
+			//freeze time
+			UGameplayStatics::SetGlobalTimeDilation(world, aimTimeDilation);
+			aiming = true;
+			targetScreenPos.X = 0.5f;
+			targetScreenPos.Y = 0.5f;
+		}
+		//grapple aim
+		if (player->IsInputKeyDown(hookKey)) {
+			myLoc = GetActorLocation();
+			forthVec = GetActorForwardVector();
+			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Green, FString::Printf(TEXT("grappleTarget: %d screenPos X: %f Y: %f"), grapleTarget_i, targetScreenPos.X, targetScreenPos.Y));
+			DrawDebugLine(world, myLoc, myLoc + forthVec * (hookRange + disengageHookDist), FColor::Green, true, -1, 0, 5.0);
+
+			targetLocked = false;
+			target_i = -1;
+			//do the aiming with the grappables
+			//turn on UI hints for all visible grappling points
+			//check which is the best option, the most centered one, if inside grappleTol
+			grappleValue = 10.0f;
+			grapleTarget_i = -1;
+			crossHairColor = FColor::Silver;
+			FVector2D grapScreenPos;
+			for (int i = 0; i < myGameState->grappables.Num(); ++i) {
+				player->ProjectWorldLocationToScreen(myGameState->grappables[i]->GetActorLocation(), grapScreenPos, false);
+				grapScreenPos.X /= width;
+				grapScreenPos.Y /= height;
+				float currGrappleValue = FVector2D::Distance(grapScreenPos, targetScreenPos);
+				if (currGrappleValue < grappleTol && currGrappleValue < grappleValue) {
+					grapleTarget_i = i;
+					grappleValue = currGrappleValue;
+					//and make the correspondent UI hint green
+					crossHairColor = FColor::Emerald;
 				}
-				else {
-					//newMosquito = GWorld->SpawnActor<AMosquitoCharacter>(mutations[0]->GetClass(), SpawnPosition, FRotator::ZeroRotator, SpawnInfo);
-					// spawn new mosquito without blueprint
-					newMosquito = GWorld->SpawnActor<AMosquitoCharacter>(AMosquitoCharacter::StaticClass(), SpawnPosition, FRotator::ZeroRotator, SpawnInfo);					
-				}
-
-				if (newMosquito != NULL)
-				{										
-					DrawDebugLine(world, GetActorLocation(), SpawnPosition, FColor(0, 255, 0), true, -1, 0, 5.0);
-				}
-				else
-				{
-					// Failed to spawn actor!
-					if (debugInfo)
-						GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Red, TEXT("failed to place new mosquito!"));
-				}
-			}
-			
-
-			if (player->WasInputKeyJustPressed(grabKey) && target_i>=0){				
-				//grab last mosquito
-				FVector mosquitoTarget = mutations[target_i]->GetActorLocation() - GetActorLocation();
-				FVector upVec = FRotationMatrix(myRotation).GetUnitAxis(EAxis::Z);
-
-				grabForth = mosquitoTarget.ProjectOnTo(forthVec).Size();
-				grabRight = mosquitoTarget.ProjectOnTo(rightVec).Size();
-				grabHeight = mosquitoTarget.ProjectOnTo(upVec).Size();
-			}
-			if (player->IsInputKeyDown(grabKey) && target_i>=0){			
-				FVector upVec = FRotationMatrix(myRotation).GetUnitAxis(EAxis::Z);
-
-				//hold last mosquito
-				FVector mosquitoPos = grabForth* forthVec + grabRight* rightVec + grabHeight* upVec+GetActorLocation();
-				mutations[target_i]->SetActorLocation(mosquitoPos);
-				DrawDebugLine(world, GetActorLocation(), GetActorLocation() + forthVec*throwPower, FColor(255, 255, 0), true, 0.1f, 0, 5.0);
-			}
-			if (player->WasInputKeyJustReleased(grabKey) && target_i>=0){
-				//throw him
-				mutations[target_i]->GetCharacterMovement()->Velocity = throwPower * forthVec;
 			}
 
-			if(player->WasInputKeyJustPressed(hookKey)){
-				//freeze time
-				UGameplayStatics::SetGlobalTimeDilation(world, aimTimeDilation);
-			}
-			if(player->WasInputKeyJustReleased(hookKey)){
-				//release time and change state
-				UGameplayStatics::SetGlobalTimeDilation(world, 1.0f);
-				
+		}
+		if (player->WasInputKeyJustReleased(hookKey)) {
+			aiming = false;
+			if (grapleTarget_i >= 0) {
+				myLoc = GetActorLocation();
+				targetLoc = myGameState->grappables[grapleTarget_i]->GetActorLocation();
 				//play animation to pull
-
-
-				mystate = hookFlying;
-			}
-
-			Listen4Attack();
-			Listen4Move(DeltaTime);
-			Listen4Look();
-			Listen4Dash();
-			Reorient();
-			break;
-		case attacking:			
-			Advance();
-			Listen4Attack();
-			Listen4Look();
-			Listen4Dash();
-			if (updateAtkDir) {
-				if (lookInCamDir) {
-					Look2Dir(forthVec);
-				}
-				else {
-					if (horIn != 0.0f || vertIn != 0.0f)
-						Look2Dir(vertIn*forthVec + horIn * rightVec);
-				}
-			}			
-			break;
-		case hookFlying:
-			if (target_i >= 0) {
-				targetDir = mutations[target_i]->GetActorLocation() - GetActorLocation();
+				targetDir = targetLoc - myLoc;
 				distToTarget = targetDir.Size();
-				if (distToTarget < disengageHookDist)
-				{
-					flying = false;
-					myCharMove->MovementMode = MOVE_Walking;
-					myCharMove->MaxWalkSpeed = normalSpeed;
-					myCharMove->AirControl = normalAirCtrl;
-					myCharMove->GravityScale = 1.0f;
-					mystate = idle;
-				}
-				else
-				{
-					flying = true;
-					myCharMove->MovementMode = MOVE_Flying;
-					myCharMove->GravityScale = 0.0f;
-					myCharMove->MaxWalkSpeed = dashSpeed;
-					//AddMovementInput(targetDir, 1.0f);
-					myCharMove->Velocity = targetDir;
-					//myCharMove->Velocity = forthVec * throwPower;
-					myCharMove->AirControl = 0.0f;
+				//look in target direction
+				myCharMove->bOrientRotationToMovement = false;
+				lookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, targetLoc);
+				lookToTarget.Pitch = 0;
+				lookToTarget.Roll = 0;
+				SetActorRotation(lookToTarget);
+				if (grapleTarget_i >= 0 && distToTarget < hookRange + disengageHookDist) {
+					myAnimBP->attackIndex = 1;
+					this->CustomTimeDilation = 1.0f;
+					GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::DelayedHookPull, throwHookTime, false);
 				}
 			}
-			Listen4Look();
-			Listen4Dash();
-			break;
-		case evading:
-			Listen4Look();
-			Listen4Dash();
-			MoveForward(dashDirV);
-			MoveRight(dashDirH);
-			break;
+			else {
+				UGameplayStatics::SetGlobalTimeDilation(world, 1.0f);
+			}
+		}
+
+		Listen4Attack();
+		Listen4Move(DeltaTime);
+		Listen4Look();
+		Listen4Dash();
+		Reorient();
+		break;
+	case attacking:
+		Advance();
+		Listen4Attack();
+		Listen4Look();
+		Listen4Dash();
+		Reorient();
+		if (updateAtkDir) {
+			if (lookInCamDir) {
+				Look2Dir(forthVec);
+			}
+			else {
+				if (horIn != 0.0f || vertIn != 0.0f)
+					Look2Dir(vertIn*forthVec + horIn * rightVec);
+			}
+		}
+		break;
+	case hookFlying:
+		if (grapleTarget_i >= 0) {
+			myLoc = GetActorLocation();
+			targetLoc = myGameState->grappables[grapleTarget_i]->GetActorLocation();
+			targetDir = targetLoc - myLoc;
+			distToTarget = targetDir.Size();
+			targetDir.Normalize();
+
+			//set player orientation
+			myCharMove->bOrientRotationToMovement = false;
+			lookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, targetLoc);
+			lookToTarget.Pitch = 0;
+			lookToTarget.Roll = 0;
+			SetActorRotation(lookToTarget);
+
+			if (distToTarget < disengageHookDist)
+			{
+				flying = false;
+				myCharMove->MovementMode = MOVE_Walking;
+				myCharMove->MaxWalkSpeed = normalSpeed;
+				myCharMove->MaxFlySpeed = normalSpeed;
+				myCharMove->MaxAcceleration = normalAcel;
+				myCharMove->AirControl = normalAirCtrl;
+				myCharMove->GravityScale = 1.0f;
+				mystate = idle;
+				myAnimBP->attackIndex = 0;
+			}
+			else
+			{
+				flying = true;
+				myCharMove->MovementMode = MOVE_Flying;
+				myCharMove->GravityScale = 0.0f;
+				myCharMove->MaxWalkSpeed = dashSpeed * (distToTarget) / hookRange;
+				myCharMove->MaxFlySpeed = dashSpeed * (distToTarget) / hookRange;
+				myCharMove->MaxAcceleration = dashAcel;
+				//AddMovementInput(targetDir, 1.0f);
+				myCharMove->Velocity = targetDir * dashSpeed * (distToTarget) / hookRange;;
+				//myCharMove->Velocity = forthVec * throwPower;
+				myCharMove->AirControl = 0.0f;
+			}
+		}
+		Listen4Look();
+		Listen4Dash();
+		Reorient();
+		break;
+	case evading:
+		Listen4Look();
+		Listen4Dash();
+		MoveForward(dashDirV);
+		MoveRight(dashDirH);
+		Reorient();
+		break;
+	case suffering:
+		if (recoilValue >= 0.0f) {
+			AddMovementInput(damageDir, recoilValue);
+		}
+		Listen4Look();
+		break;
+	case kdTakeOff:
+		if (recoilValue >= 0.0f) {
+			AddMovementInput(damageDir + 0.7*FVector::UpVector, recoilValue);
+		}
+		Listen4Look();
+		break;
+	case kdFlight:
+		//check for fast recover, if right before start falling down
+		if (FMath::Abs(myVel.Z) < fastRecoverSpeedTarget){
+			if (player->WasInputKeyJustPressed(dashKey)) {
+				myAnimBP->damageIndex = 25;
+				mystate = kdGround;
+				world->GetTimerManager().ClearTimer(timerHandle);
+				GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::Relax, recoverTime, false);
+			}
+		}
+		//otherwise, only recover when hitting some ground
+		if (!inAir) {
+			mystate = kdGround;
+			myAnimBP->damageIndex = 30;
+			GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::DelayedKDground, recoverTime, false);
+		}
+		Listen4Look();
+		break;
+	case kdGround:
+		Listen4Look();
+		break;
+	case kdRise:
+		if (!arising) {
+			//simple rise, seesaw attack or spin attack
+			if (player->IsInputKeyDown(atk1Key) && player->WasInputKeyJustPressed(atk2Key)){
+				//spin rise attack
+				attackPower = attackKDPower;
+				knockingDown = true;
+				myAnimBP->damageIndex = 33;
+				mystate = kdGround;
+				if (myMesh->GetChildComponent(0))
+					Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(true);
+				advanceAtk = 0.0f;
+				GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::DelayedAtkRise, spinRiseTime, false);
+			}
+			if (player->WasInputKeyJustReleased(atk1Key)) {
+				//seesaw attack rise
+				attackPower = attackNormalPower;
+				myAnimBP->damageIndex = 32;
+				mystate = attacking;
+				if (myMesh->GetChildComponent(0))
+					Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(true);
+				advanceAtk = 1.0f;
+				GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::DelayedAtkRise, seesawRiseTime, false);
+			}
+			if (player->WasInputKeyJustReleased(atk2Key) || player->WasInputKeyJustPressed(vertical_Up)) {
+				//simple rise
+				arising = true;
+				myAnimBP->damageIndex = 31;
+				GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::Relax, riseTime, false);
+			}
+		}
+		Listen4Look();
+		break;
 	}	
 }
 
@@ -542,6 +678,7 @@ void AMyPlayerCharacter::Reorient(){
 		}
 	}
 	if (targetLocked){
+		crossHairColor = FColor::Emerald;
 		if (lockTargetPersistent && targetLocking) {
 			if (player->WasInputKeyJustPressed(horizontal_L)) {
 				startReorient = mytime;
@@ -565,44 +702,69 @@ void AMyPlayerCharacter::Reorient(){
 			}
 		}
 
-		FVector myLoc = GetActorLocation();
-		FVector targetLoc = mutations[target_i]->GetActorLocation();
-							
-		FVector forthLoc = myLoc + (targetLoc - myLoc).Size()*forthVec;
-		
-		//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, FString::Printf(TEXT("size vector: %f"), (targetLoc - myLoc).Size()));
+		FVector targetpos = myGameState->mutations[target_i]->GetActorLocation();
+		myLoc = GetActorLocation();
+		//check if target position is valid, if it is too high disengage targetLock
+		if(targetpos.Z < myLoc.Z + targetHeightTol){		
+			targetLoc = targetpos - heightOffset_tgtLock * FVector::UpVector;
+			FVector forthLoc = myLoc + (targetLoc - myLoc).Size()*forthVec;
 
-		myCharMove->bOrientRotationToMovement = false;
-		FRotator lookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, targetLoc);
-		const FRotator lookToTargetYaw(0, lookToTarget.Yaw, 0);
-		SetActorRotation(lookToTargetYaw);
-		
-		//DrawDebugSphere(world, myLoc, 10.0f, 20, FColor(255, 0, 0), true, -1, 0, 2);
-		//DrawDebugSphere(world, myLoc + forthVec * 50.0f + FVector(0.0f, 0.0f, 50.0f), 10.0f, 20, FColor(255, 0, 0), true, -1, 0, 2);
+			//turn on crosshairs
+			player->ProjectWorldLocationToScreen(myGameState->mutations[target_i]->GetActorLocation(), targetScreenPos, false);
+			//targetScreenPosAbs = targetScreenPos;
+			targetScreenPos.X /= width;
+			targetScreenPos.Y /= height;
 
-		if (startReorient == 0.0f) {
-			Controller->SetControlRotation(lookToTarget);
-			//GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Blue, "[oriented] ");
+			//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, FString::Printf(TEXT("size vector: %f"), (targetLoc - myLoc).Size()));
+
+			myCharMove->bOrientRotationToMovement = false;
+			lookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, targetLoc);
+			const FRotator lookToTargetYaw(0, lookToTarget.Yaw, 0);
+			SetActorRotation(lookToTargetYaw);
+
+			//DrawDebugSphere(world, myLoc, 10.0f, 20, FColor(255, 0, 0), true, -1, 0, 2);
+			//DrawDebugSphere(world, myLoc + forthVec * 50.0f + FVector(0.0f, 0.0f, 50.0f), 10.0f, 20, FColor(255, 0, 0), true, -1, 0, 2);
+
+			if (startReorient == 0.0f) {
+				targetScreenPosAbs = targetScreenPos;
+				Controller->SetControlRotation(lookToTarget);
+				//GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Blue, "[oriented] ");
+			}
+			else {
+				targetScreenPosAbs.X = -1;
+				targetScreenPosAbs.Y = -1;
+				//GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Blue, "[orienting] ");
+				float reorientGain = (mytime - startReorient) / reorientTime;
+				if (reorientGain >= 1.0f)
+					startReorient = 0.0f;
+
+				FVector immediateTarget = forthLoc + (targetLoc - forthLoc)*reorientGain;
+
+				DrawDebugLine(world, myLoc, myLoc + forthVec * 100.0f *reorientGain, FColor(255, 0, 0), true, -1, 0, 5.0);
+				DrawDebugLine(world, myLoc, immediateTarget, FColor(0, 255, 0), true, -1, 0, 5.0);
+
+				//calculate intermediate position for the smooth lock on
+				FRotator almostLookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, immediateTarget);
+				Controller->SetControlRotation(almostLookToTarget);
+			}
 		}
 		else {
-			//GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Blue, "[orienting] ");
-			float reorientGain = (mytime - startReorient) / reorientTime;
-			if (reorientGain >= 1.0f)
-				startReorient = 0.0f;
-			
-			FVector immediateTarget = forthLoc+(targetLoc - forthLoc)*reorientGain;
-
-			DrawDebugLine(world, myLoc, myLoc + forthVec * 100.0f *reorientGain, FColor(255, 0, 0), true, -1, 0, 5.0);
-			DrawDebugLine(world, myLoc, immediateTarget, FColor(0, 255, 0), true, -1, 0, 5.0);
-
-			//calculate intermediate position for the smooth lock on
-			FRotator almostLookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, immediateTarget);
-			Controller->SetControlRotation(almostLookToTarget);
-		}
-		
+			targetLocked = false;
+			//turn off the crosshairs
+			targetScreenPos.X = -1.0f;
+			targetScreenPos.Y = -1.0f;
+			targetScreenPosAbs = targetScreenPos;
+			myCharMove->bOrientRotationToMovement = true;
+		}		
 	}
 	else {
-		myCharMove->bOrientRotationToMovement = true;
+		//turn off the crosshairs if not aiming
+		if (!aiming) {
+			targetScreenPos.X = -1.0f;
+			targetScreenPos.Y = -1.0f;
+			targetScreenPosAbs = targetScreenPos;
+			myCharMove->bOrientRotationToMovement = true;
+		}
 	}	
 }
 void AMyPlayerCharacter::ReportNoise(USoundBase* SoundToPlay, float Volume)
@@ -626,7 +788,8 @@ void AMyPlayerCharacter::FindEnemy(int locDir) {
 	float currValue;
 	
 	if (target_i >= 0) {
-		player->ProjectWorldLocationToScreen(mutations[target_i]->GetActorLocation(), targetScreenPos, false);
+		player->ProjectWorldLocationToScreen(myGameState->mutations[target_i]->GetActorLocation(), targetScreenPos, false);
+		//targetScreenPosAbs = targetScreenPos;
 		targetScreenPos.X /= width;
 		targetScreenPos.Y /= height;
 		switch (locDir) {
@@ -647,10 +810,10 @@ void AMyPlayerCharacter::FindEnemy(int locDir) {
 			break;
 		}
 	}
-	for (int i=0; i<mutations.Num(); ++i)
+	for (int i=0; i<myGameState->mutations.Num(); ++i)
 	{
 			//check if inside the viewport
-			player->ProjectWorldLocationToScreen(mutations[i]->GetActorLocation(), targetScreenPos, false);
+			player->ProjectWorldLocationToScreen(myGameState->mutations[i]->GetActorLocation(), targetScreenPos, false);
 			targetScreenPos.X /= width;
 			targetScreenPos.Y /= height;
 			
@@ -715,9 +878,9 @@ void AMyPlayerCharacter::FindEnemy(int locDir) {
 	
 }
 void AMyPlayerCharacter::Look2Dir(FVector LookDir) {
-	FVector myLoc = GetActorLocation();
-	FVector targetLoc = myLoc + LookDir;
-	FRotator lookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, targetLoc);
+	myLoc = GetActorLocation();
+	targetLoc = myLoc + LookDir;
+	lookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, targetLoc);
 	const FRotator lookToTargetYaw(0, lookToTarget.Yaw, 0);
 	SetActorRotation(lookToTargetYaw);
 }
@@ -800,16 +963,39 @@ void AMyPlayerCharacter::KnockDownHit(bool left) {
 	knockDownIndex = 2;
 	//myAnimBP->knockDown = knockDownIndex;
 
+	knockingDown = true;
+	attackPower = attackKDPower;
+
+	//become lethal
+	if (myMesh->GetChildComponent(0))
+		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(true);
+	
+	float relaxTime;
 	if(left){
 		//start the attack
-		myMesh->PlayAnimation(superHitL, false);
+		superHitL.myAnim->RateScale = superHitL.speed;
+		myMesh->PlayAnimation(superHitL.myAnim, false);
+		advanceAtk = superHitL.advanceAtkValue;
+		relaxTime = superHitL.myAnim->SequenceLength/superHitL.speed;
 	}
-	else{
-		myMesh->PlayAnimation(superHitR, false);
+	else{		
+		superHitR.myAnim->RateScale = superHitR.speed;
+		myMesh->PlayAnimation(superHitR.myAnim, false);
+		advanceAtk = superHitR.advanceAtkValue;
+		relaxTime = superHitR.myAnim->SequenceLength/superHitR.speed;
+	}
+	mystate = attacking;
+	
+	if (inAir) {
+		myCharMove->GravityScale = 0.0f;
+		//myCharMove->StopMovementImmediately();
+		//myCharMove->StopActiveMovement();		
+		FVector oldMove = myCharMove->Velocity;
+		oldMove = oldMove.ProjectOnTo(FVector(1.0f, 0.0f, 0.0f)) + oldMove.ProjectOnTo(FVector(0.0f, 1.0f, 0.0f));
+		myCharMove->Velocity = oldMove / 2;
 	}
 	
 	//start next relax
-	float relaxTime = 1.0f;// superHitL->GetPlayLength();
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::Relax, relaxTime, false);
 }
 void AMyPlayerCharacter::AttackWalk(bool left){
@@ -865,9 +1051,14 @@ void AMyPlayerCharacter::NextComboHit(){
 			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::White, TEXT("reset attack chain"));
 		Relax();
 	}
-	else {		
+	else {
 		mystate = attacking;
 		updateAtkDir = true;
+		knockingDown = attackChain[atkIndex].knockDown;
+		if (knockingDown)
+			attackPower = attackKDPower;
+		else
+			attackPower = attackNormalPower;
 		
 		//clear current relax timer
 		world->GetTimerManager().ClearTimer(timerHandle);
@@ -899,24 +1090,33 @@ void AMyPlayerCharacter::NextComboHit(){
 }
 void AMyPlayerCharacter::StartLethal(){
 	updateAtkDir = false;
-	Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(true);
+	if (myMesh->GetChildComponent(0))
+		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(true);
 	float time2NotLethal = attackChain[atkIndex].lethalTime*(attackChain[atkIndex].myAnim->SequenceLength / attackChain[atkIndex].speed);
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::StopLethal, time2NotLethal, false);
 }
 void AMyPlayerCharacter::StopLethal(){
 	advanceAtk = 0.0f;
-	Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
+	knockingDown = false;
+	attackPower = attackNormalPower;
+	if (myMesh->GetChildComponent(0))
+		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
 	float time4NextHit = (1-(attackChain[atkIndex].time2lethal+attackChain[atkIndex].lethalTime))*(attackChain[atkIndex].myAnim->SequenceLength / attackChain[atkIndex].speed)+ attackChain[atkIndex].coolDown;
 	atkIndex++;
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::NextComboHit, time4NextHit, false);
 }
 void AMyPlayerCharacter::Relax(){
 	ResetAnims();
+	arising = false;
+	advanceAtk = 0.0f;
 	//atk1Index = 0;
 	//myAnimBP->attackIndex = atk1Index;
 	knockDownIndex = 0;
 	//myAnimBP->knockDown = knockDownIndex;
-	mystate = idle;			
+	mystate = idle;
+
+	if (myMesh->GetChildComponent(0))
+		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
 	
 	world->GetTimerManager().ClearTimer(timerHandle);
 	if (debugInfo)
@@ -950,7 +1150,8 @@ void AMyPlayerCharacter::CancelAttack() {
 	attackLocked = false;
 	
 	//stop being lethal
-	Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
+	if (myMesh->GetChildComponent(0))
+		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
 
 	myMesh->Stop();
 	ResetAnims();
@@ -962,6 +1163,7 @@ void AMyPlayerCharacter::ResetAnims(){
 		if (debugInfo)
 			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("following the anim blueprint again!"));
 	}
+	myAnimBP->damageIndex = 0;
 }
 
 void AMyPlayerCharacter::ResetAttacks(){
@@ -1051,7 +1253,8 @@ void AMyPlayerCharacter::Listen4Attack(){
 					//myAnimBP->knockDown = knockDownIndex;
 
 					//start the attack
-					myMesh->PlayAnimation(prepSuperHitL, false);
+					prepSuperHitL.myAnim->RateScale = prepSuperHitL.speed;
+					myMesh->PlayAnimation(prepSuperHitL.myAnim, false);
 					if (debugInfo)
 						GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("knockDownAtk started"));
 				}
@@ -1071,7 +1274,8 @@ void AMyPlayerCharacter::Listen4Attack(){
 					//myAnimBP->knockDown = knockDownIndex;
 
 					//start the attack
-					myMesh->PlayAnimation(prepSuperHitR, false);
+					prepSuperHitR.myAnim->RateScale = prepSuperHitR.speed;
+					myMesh->PlayAnimation(prepSuperHitR.myAnim, false);
 					if (debugInfo)
 						GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("knockDownAtk started"));
 				}
@@ -1106,6 +1310,126 @@ void AMyPlayerCharacter::OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherAc
 
 void AMyPlayerCharacter::OnBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	if (debugInfo)
-		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Green, "[player OverlapBegin] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
+	if (OtherActor && (OtherActor != this) && OtherComp)
+	{
+		AMutationChar *myAlgoz = Cast<AMutationChar>(OtherActor);
+
+		if (myAlgoz) {
+			if (debugInfo)
+				GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Green, "[player OverlapBegin] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
+			
+			//only call damage if not already in some damage state
+			if((int)mystate < 3 || (int)mystate > 8) {
+				myAlgoz->attackConnected = true;
+				damageDir = GetActorLocation() - OtherActor->GetActorLocation();
+				damageDir.Normalize();
+				MyDamage(myAlgoz->damagePower, myAlgoz->knockingDown, myAlgoz->spiralAtk);
+			}
+		}
+	}
+}
+
+void AMyPlayerCharacter::MyDamage(float DamagePower, bool KD, bool Spiral) {
+	CancelAttack();
+	UGameplayStatics::SetGlobalTimeDilation(world, 1.0f);
+		
+	flying = false;
+
+	life -= DamagePower;
+	if (life <= 0)
+		Death();
+
+	//reactivate anim blueprint
+	ResetAnims();
+
+	recoilValue = 1.0f;
+
+	if (KD){
+		targetLocked = false;
+		mystate = kdTakeOff;
+		myCharMove->MovementMode = MOVE_Flying;
+		myCharMove->MaxWalkSpeed = normalSpeed;
+		myCharMove->MaxFlySpeed = normalSpeed;
+		myCharMove->MaxAcceleration = normalAcel;
+		myCharMove->AirControl = normalAirCtrl;
+		myCharMove->GravityScale = 1.0f;
+
+		if(Spiral)
+			myAnimBP->damageIndex = 10;
+		else
+			myAnimBP->damageIndex = 11;
+
+		FVector myLoc = GetActorLocation();
+
+		//to start the knockDown you look to your algoz
+		FRotator lookToRot = UKismetMathLibrary::FindLookAtRotation(myLoc, myLoc - damageDir*500.0f);
+		const FRotator lookToYaw(0, lookToRot.Yaw, 0);
+		SetActorRotation(lookToYaw);
+
+		//hit pause, or, in this case, time dilation
+		UGameplayStatics::SetGlobalTimeDilation(world, 0.1f);
+		//start delayed takeoff
+		GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::DelayedKDtakeOff, hitPause, false);	
+	}
+	else {
+		mystate = suffering;
+		
+		int damageAnimChoice = FMath::RandRange(0, 10);
+		if (damageAnimChoice <= 3) {
+			myAnimBP->damageIndex = 1;
+		}
+		else {
+			if (damageAnimChoice <= 6)
+				myAnimBP->damageIndex = 2;
+			else
+				myAnimBP->damageIndex = 3;
+		}
+
+		//hit pause, or, in this case, time dilation
+		UGameplayStatics::SetGlobalTimeDilation(world, 0.1f);
+		//start stabilize timer
+		GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::DelayedStabilize, hitPause, false);
+	}
+}
+void AMyPlayerCharacter::DelayedKDtakeOff() {
+	UGameplayStatics::SetGlobalTimeDilation(world, 1.0f);
+	GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::KnockDownFlight, takeOffTime, false);	
+}
+void AMyPlayerCharacter::KnockDownFlight() {
+	mystate = kdFlight;
+	myCharMove->MovementMode = MOVE_Walking;
+	myAnimBP->damageIndex = 20;
+}
+void AMyPlayerCharacter::DelayedStabilize() {
+	UGameplayStatics::SetGlobalTimeDilation(world, 1.0f);
+	GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::Stabilize, damageTime, false);
+}
+void AMyPlayerCharacter::DelayedHookPull() {
+	myAnimBP->attackIndex = 11;
+	mystate = hookFlying;
+	//release time and change state
+	UGameplayStatics::SetGlobalTimeDilation(world, 1.0f);
+}
+void AMyPlayerCharacter::DelayedKDground() {
+	mystate = kdRise;
+}
+void AMyPlayerCharacter::DelayedAtkRise() {
+	if(debugInfo)
+		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Yellow, "[player] finished rise.");
+	advanceAtk = 0.0f;
+	knockingDown = false;
+	attackPower = attackNormalPower;
+	if (myMesh->GetChildComponent(0))
+		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
+		
+	GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::Relax, riseAtkCoolDown, false);
+}
+void AMyPlayerCharacter::Stabilize() {
+	recoilValue = 0.0f;
+	myAnimBP->damageIndex = 0;
+	
+	mystate = idle;
+}
+void AMyPlayerCharacter::Death() {
+	GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Red, "[player] is dead.");
 }

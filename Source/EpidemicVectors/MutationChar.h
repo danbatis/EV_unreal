@@ -21,7 +21,7 @@
 
 #include "MutationChar.generated.h"
 
-//forward declaration to tell compiler the class exists
+//forward declaration to avoid circular reference
 class AMutationCtrl;
 class AMyPlayerCharacter;
 
@@ -39,6 +39,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float advanceAtkValue;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float telegraphPortion;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float telegraphAdvance;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool knockDown;
 	FMutAtkNode* left;
 	FMutAtkNode* right;
 
@@ -51,6 +52,7 @@ public:
 		advanceAtkValue = 1.0f;
 		telegraphPortion = 0.0f;
 		telegraphAdvance = 0.0f;
+		knockDown = false;
 	}
 };
 
@@ -86,6 +88,13 @@ UENUM(BlueprintType) enum class MutationStates:uint8 {
 	suffering	UMETA(DisplayName = "suffering"),
 	evading		UMETA(DisplayName = "evading"),
 	approach	UMETA(DisplayName = "approach"),
+	kdFlight	UMETA(DisplayName = "kdFlight"),
+	kdGround	UMETA(DisplayName = "kdGround"),
+	kdRise		UMETA(DisplayName = "kdRise"),
+	dizzy		UMETA(DisplayName = "dizzy"),
+	grabbed		UMETA(DisplayName = "grabbed"),
+	grappled	UMETA(DisplayName = "grappled"),
+	heightRoll	UMETA(DisplayName = "heightRoll"),
 };
 
 UCLASS()
@@ -143,12 +152,16 @@ public:
 	AMutationCtrl* myController;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool debugInfo;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool grappable;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool grabable;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float silentTime;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float stunLostTime;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") TArray<ATargetPoint*> patrolPoints;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float desperateLifeLevel = 10.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float fightRange = 500.0f;
-		
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float rollTolHeight = 200.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float heightRollSpeed = 500.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float heightRollTol = 5.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool patrol_in_order;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool patrolBackNforth = false;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") int nextPatrol_i;
@@ -157,7 +170,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool canFly;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") MutationStates mystate;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float strikeDistance = 250.0f;
-	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float damagePower = 5.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float moveTolerance = 100.0f;
 	UPROPERTY(BlueprintReadWrite) FScanParams currentScanParams;
 	float mytime;
@@ -188,16 +201,21 @@ public:
 	float angleToTurn2Target = 0.0f;
 	FRotator ScanRotation;
 	FQuat QuatScanRotation;
-	int rotateToFaceTargetDir;
+	int rotateToFaceTargetDir=1;
+	bool knockingDown;
 	bool attackConnected;
+	bool spiralAtk;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float faceTolerance = 2.0f; 	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float faceTargetRotSpeed = 10.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float faceTargetRotSpeed = 350.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float blindPursuitTime = 5.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float aggressivity = 0.5f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float maxIdleTime = 2.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float minIdleTime = 1.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float dashTime = 0.5f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float hitPauseDuration = 0.01f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float KDspeed = 600.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float KDriseTime = 0.8f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float knockDownTakeOffTime = 1.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float flyStopFactor = 2.5f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool startAirborne = false;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") FMutAtkNode spiralAtkNode;
@@ -206,8 +224,10 @@ public:
 	void NewGoal(bool Flying);	
 
 private:
+	bool kdrecovering = false;
+	bool kdTakingOff = false;
 	float evadeValue;
-	float oldTargetDist;
+	float oldTargetDist;	
 	FVector moveDir;
 	// You can use this to customize various properties about the trace
 	FCollisionQueryParams RayParams;
@@ -237,8 +257,12 @@ private:
 
 	void NextComboHit();
 	void CancelAttack();
-	void MyDamage(float DamagePower, FVector AlgozPos);
+	void MyDamage(float DamagePower, FVector AlgozPos, bool KD);
 	void Death();
+	void DelayedStartKDtakeOff();
+	void DelayedStartKDFlight();
+	void DelayedStartKDFall();
+	void DelayedKDRise();
 	void DelayedStabilize();
 	void Stabilize();
 	void Navigating(float DeltaTime);
