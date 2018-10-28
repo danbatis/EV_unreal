@@ -20,7 +20,7 @@ AMosquitoCharacter::AMosquitoCharacter(const class FObjectInitializer& ObjectIni
 	collisionCapsule->SetupAttachment(GetCapsuleComponent());
 	collisionCapsule->SetRelativeLocation(FVector(0.0f, 0.0f, 0.0f));
 	
-	collisionCapsule->OnComponentHit.AddDynamic(this, &AMosquitoCharacter::OnCompHit);
+	//collisionCapsule->OnComponentHit.AddDynamic(this, &AMosquitoCharacter::OnCompHit);
 	collisionCapsule->OnComponentBeginOverlap.AddDynamic(this, &AMosquitoCharacter::OnOverlapBegin);
 	collisionCapsule->OnComponentEndOverlap.AddDynamic(this, &AMosquitoCharacter::OnOverlapEnd);
 }
@@ -119,7 +119,7 @@ void AMosquitoCharacter::MoveDir(float Value, EAxis::Type Dir)
 		AddMovementInput(Direction, Value);
 	}
 }
-
+/*
 void AMosquitoCharacter::OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
 	if (OtherActor != NULL && OtherActor != this && OtherComp != NULL) {
@@ -129,6 +129,7 @@ void AMosquitoCharacter::OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherAc
 		}
 	}
 }
+*/
 
 
 void AMosquitoCharacter::OnOverlapEnd(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)

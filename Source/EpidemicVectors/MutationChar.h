@@ -16,7 +16,7 @@
 
 #include "MyPlayerCharacter.h"
 #include "MutationAnimComm.h"
-
+#include "VectorsGameStateBase.h"
 #include "Engine.h"
 
 #include "MutationChar.generated.h"
@@ -78,23 +78,23 @@ public:
 };
 
 UENUM(BlueprintType) enum class MutationStates:uint8 {
-	idle		UMETA(DisplayName = "idle"),
-	patrol		UMETA(DisplayName = "patrol"),
-	investigate UMETA(DisplayName = "investigate"),
-	fight		UMETA(DisplayName = "fight"),
-	escape		UMETA(DisplayName = "escape"),
-	pursuit		UMETA(DisplayName = "pursuit"),	
-	attacking	UMETA(DisplayName = "attacking"),
-	suffering	UMETA(DisplayName = "suffering"),
-	evading		UMETA(DisplayName = "evading"),
-	approach	UMETA(DisplayName = "approach"),
-	kdFlight	UMETA(DisplayName = "kdFlight"),
-	kdGround	UMETA(DisplayName = "kdGround"),
-	kdRise		UMETA(DisplayName = "kdRise"),
-	dizzy		UMETA(DisplayName = "dizzy"),
-	grabbed		UMETA(DisplayName = "grabbed"),
-	grappled	UMETA(DisplayName = "grappled"),
-	heightRoll	UMETA(DisplayName = "heightRoll"),
+	idle		UMETA(DisplayName = "idle"),		//0
+	patrol		UMETA(DisplayName = "patrol"),		//1
+	investigate UMETA(DisplayName = "investigate"),	//2
+	fight		UMETA(DisplayName = "fight"),		//3
+	heightRoll	UMETA(DisplayName = "heightRoll"),	//4
+	escape		UMETA(DisplayName = "escape"),		//5
+	pursuit		UMETA(DisplayName = "pursuit"),		//6
+	attacking	UMETA(DisplayName = "attacking"),	//7
+	evading		UMETA(DisplayName = "evading"),		//8
+	approach	UMETA(DisplayName = "approach"),	//9
+	suffering	UMETA(DisplayName = "suffering"),	//10
+	kdFlight	UMETA(DisplayName = "kdFlight"),	//11
+	kdGround	UMETA(DisplayName = "kdGround"),	//12
+	kdRise		UMETA(DisplayName = "kdRise"),		//13
+	dizzy		UMETA(DisplayName = "dizzy"),		//14
+	grabbed		UMETA(DisplayName = "grabbed"),		//15
+	grappled	UMETA(DisplayName = "grappled"),	//16
 };
 
 UCLASS()
@@ -105,7 +105,7 @@ class EPIDEMICVECTORS_API AMutationChar : public ACharacter
 public:
 	// Sets default values for this character's properties
 	AMutationChar();
-
+	
 	enum MoveModes{
 		waitOldHead,
 		scanning,
@@ -173,12 +173,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float damagePower = 5.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float moveTolerance = 100.0f;
 	UPROPERTY(BlueprintReadWrite) FScanParams currentScanParams;
+	UPROPERTY(BlueprintReadWrite) FName grabbingSocketName;
 	float mytime;
 	bool flying;
 	bool inAir;
 	bool inFightRange;
 	bool donePath;
 	bool targetVisible;
+	bool thrownByPlayer;
+	FVector grabFlightDir;
+	float thrownTime;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float life = 100.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float damageTime = 0.5f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float normalSpeed = 600.0f;
@@ -190,9 +194,14 @@ public:
 	float targetSensedTime;
 	int patrol_i;
 	int patrolDir = 1;
+	int grabable_i = -1;
+	int grappable_i = -1;
+	int mutation_i = -1;
 	float distToTarget;
 	AMyPlayerCharacter* myTarget;
 	FVector targetPos;
+	FVector positionOffset;
+	FQuat rotationOffset;
 	bool becomeDesperate = false;
 	bool reachedGoal = false;
 	bool facingTarget = false;
@@ -200,11 +209,17 @@ public:
 	float scanTurnSpeed;
 	float angleToTurn2Target = 0.0f;
 	FRotator ScanRotation;
+	FRotator someRotation;
+	FRotator NewRotation;
+	FQuat QuatRotation;
 	FQuat QuatScanRotation;
 	int rotateToFaceTargetDir=1;
 	bool knockingDown;
 	bool attackConnected;
 	bool spiralAtk;
+	USkeletalMeshComponent * myMesh;
+	UCapsuleComponent* myCapsuleComp;
+	AVectorsGameStateBase *myGameState;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float faceTolerance = 2.0f; 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float faceTargetRotSpeed = 350.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float blindPursuitTime = 5.0f;
@@ -218,16 +233,35 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float knockDownTakeOffTime = 1.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float flyStopFactor = 2.5f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") bool startAirborne = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float grabRecoverTime = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") float dizzyTime = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") FName skeletonRootName = "joint1";
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MutationAI") FMutAtkNode spiralAtkNode;
 	UPROPERTY(EditAnywhere, Category = "MutationAI") TArray<FMutAtkNode> attackList;
 
-	void NewGoal(bool Flying);	
+	UPROPERTY(EditAnywhere, Category = "SFX") float SFXvolume = 1.0f;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* knockDownSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* damage1SFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* damage2SFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* begrabbedSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* meleeAtkSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* spiralAtkSFX;
+
+	void NewGoal(bool Flying);
+	void DelayedFromGrabRecover();
+	void FromGrappleRecover();
+	void OutOfAction();
+	void Stabilize();
+	void GrabThrow(FVector GrabThrowDir, float GrabThrowSpeed);
+	void Grappled();
+	//void ResetSpeeds();
 
 private:
 	bool kdrecovering = false;
 	bool kdTakingOff = false;
 	float evadeValue;
-	float oldTargetDist;	
+	float oldTargetDist;
+	bool heightRollMid;
 	FVector moveDir;
 	// You can use this to customize various properties about the trace
 	FCollisionQueryParams RayParams;
@@ -236,7 +270,8 @@ private:
 	UWorld* world;
 	UMutationAnimComm * myAnimBP;
 	UCharacterMovementComponent *myCharMove;
-	USkeletalMeshComponent * myMesh;
+	USceneComponent* mainWeaponComp;
+		
 	float startMoveTimer;
 	float advanceAtk;
 	float recoilPortion;
@@ -264,9 +299,13 @@ private:
 	void DelayedStartKDFall();
 	void DelayedKDRise();
 	void DelayedStabilize();
-	void Stabilize();
 	void Navigating(float DeltaTime);
 	void StartTraverse();
+	void FromGrabRecover();
+	void SetRagdoll(bool Activation);
+	void ClearHeightRoll();
+	void FellOutOfWorld(const class UDamageType& dmgType);
+	void DecideWhichSideFacesPlayer();
 	
 	FTimerHandle timerHandle;	
 	FMutAtkNode* atkWalker;

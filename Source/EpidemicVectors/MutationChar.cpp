@@ -16,11 +16,12 @@ AMutationChar::AMutationChar()
 	//Damage detector
 	damageDetector = CreateDefaultSubobject<UBoxComponent>(TEXT("DamageDetector"));
 	//Don't collide with camera to keep 3rd person camera at position when obstructed by this char
+	myCapsuleComp = GetCapsuleComponent();
 	GetMesh()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
-	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+	myCapsuleComp->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 	damageDetector->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
 
-	damageDetector->SetupAttachment(GetCapsuleComponent());
+	damageDetector->SetupAttachment(myCapsuleComp);
 	damageDetector->SetRelativeLocation(FVector(0.0f, 0.0f, 0.0f));
 
 	damageDetector->OnComponentBeginOverlap.AddDynamic(this, &AMutationChar::OnOverlapBegin);
@@ -51,9 +52,20 @@ void AMutationChar::BeginPlay()
 			//GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::White, "updated right leg");
 		}
 	}
+	
 	atkWalker = &attackList[0];
 	myMesh = GetMesh();
 	myAnimBP = Cast<UMutationAnimComm>(myMesh->GetAnimInstance());
+	if(myMesh->GetChildComponent(0)) {
+		mainWeaponComp = myMesh->GetChildComponent(0);
+		Cast<UPrimitiveComponent>(mainWeaponComp)->SetGenerateOverlapEvents(false);
+	}
+	else{
+		GEngine->AddOnScreenDebugMessage(-1, 20.f, FColor::Red, FString::Printf(TEXT("[mutation] missing children attack mesh!!!")));
+	}
+
+	positionOffset = myMesh->GetRelativeTransform().GetLocation();
+	rotationOffset = myMesh->GetRelativeTransform().GetRotation();
 
 	myController = Cast<AMutationCtrl>(GetController());
 	world = GetWorld();
@@ -65,6 +77,8 @@ void AMutationChar::BeginPlay()
 	myController->SetAirborne(startAirborne);
 	flying = startAirborne;
 	
+	myGameState = Cast<AVectorsGameStateBase>(world->GetGameState());
+
 	myCharMove = GetCharacterMovement();
 	if (startAirborne) {
 		myCharMove->MovementMode = MOVE_Flying;
@@ -124,10 +138,21 @@ void AMutationChar::Tick(float DeltaTime)
 	*/
 	
 	if (debugInfo) {
-		GEngine->AddOnScreenDebugMessage(-1, 0.1f, FColor::Blue, FString::Printf(TEXT("[Mutation %s] state: %d"), *GetName(),(uint8)mystate));
-		DrawDebugSphere(world, GetActorLocation(), strikeDistance, 12, FColor::Yellow, true, 0.1f, 0, 1.0);
-		DrawDebugSphere(world, GetActorLocation(), 2*strikeDistance, 12, FColor::Yellow, true, 0.1f, 0, 1.0);
-		DrawDebugSphere(world, GetActorLocation(), fightRange, 12, FColor::Green, true, 0.1f, 0, 1.0);
+		APlayerController* player = UGameplayStatics::GetPlayerController(world, 0);
+		if (player->WasInputKeyJustPressed(EKeys::H)) {
+			myController->StopBT();
+			world->GetTimerManager().ClearTimer(timerHandle);
+			heightRollMid = false;
+			GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::ClearHeightRoll, 0.3f, false);
+			//do a height Roll
+			mystate = MutationStates::heightRoll;
+			myCharMove->bOrientRotationToMovement = false;
+			GEngine->AddOnScreenDebugMessage(-1, 1.0f, FColor::Red, FString::Printf(TEXT("[Mutation %s] doing height roll"), *GetName()));
+		}
+		GEngine->AddOnScreenDebugMessage(-1, 0.01f, FColor::Green, FString::Printf(TEXT("[Mutation %s] state: %d"), *GetName(),(uint8)mystate));
+		//DrawDebugSphere(world, GetActorLocation(), strikeDistance, 12, FColor::Yellow, true, 0.1f, 0, 1.0);
+		//DrawDebugSphere(world, GetActorLocation(), 2*strikeDistance, 12, FColor::Yellow, true, 0.1f, 0, 1.0);
+		//DrawDebugSphere(world, GetActorLocation(), fightRange, 12, FColor::Green, true, 0.1f, 0, 1.0);
 		DrawDebugLine(world, GetActorLocation(), targetPos, FColor(0, 255, 0), true, 0.1f, 0, 5.0);
 	}
 
@@ -196,17 +221,27 @@ void AMutationChar::Tick(float DeltaTime)
 			}
 			break;
 		case MutationStates::heightRoll:
-			//rotate
-			FRotator NewRotation = FRotator(heightRollSpeed*DeltaTime, 0.0f, 0.0f);
-			FQuat QuatRotation = FQuat(NewRotation);
+			//rotate, despite the name, it is actually in pitch
+			NewRotation = FRotator(heightRollSpeed*DeltaTime, 0.0f, 0.0f);
+			QuatRotation = FQuat(NewRotation);
 			AddActorLocalRotation(QuatRotation, false, 0, ETeleportType::None);
 			//go to player's height
 			moveDir = (-1)*FVector::UpVector;
 			AddMovementInput(moveDir, 1.0f);
 			//if finished roll, resume
-			moveDir = FVector::VectorPlaneProject(GetActorForwardVector(), FVector::UpVector);
-			if(FMath::Acos(FVector::DotProduct(moveDir, GetActorForwardVector())) < heightRollTol){
-				ResetFightAnims();
+			if (heightRollMid) {
+				moveDir = FVector::VectorPlaneProject(GetActorForwardVector(), FVector::UpVector);
+				if (FMath::Acos(FVector::DotProduct(moveDir, GetActorForwardVector())) < heightRollTol) {
+					ResetFightAnims();
+				}
+			}
+			break;
+		case MutationStates::grabbed:
+			if(thrownByPlayer){
+				GEngine->AddOnScreenDebugMessage(-1, 0.2f, FColor::Yellow, "[mutation] grabbed flying.");
+				AddMovementInput(grabFlightDir, 1.0);
+				someRotation = ((mytime - thrownTime) / grabRecoverTime)*ScanRotation;
+				SetActorRotation(someRotation);
 			}
 			break;
 	}
@@ -235,7 +270,7 @@ void AMutationChar::OnHearNoise(APawn* PawnInstigator, const FVector& Location, 
 	if (myController && PawnInstigator != this)
 	{
 		myTarget = Cast<AMyPlayerCharacter>(PawnInstigator);
-		if (myTarget) {
+		if (myTarget && mystate < MutationStates::suffering) {
 			//Updates our target based on what we've heard.
 			UE_LOG(LogTemp, Warning, TEXT("[Mutation] target heard."));
 
@@ -252,8 +287,9 @@ void AMutationChar::OnHearNoise(APawn* PawnInstigator, const FVector& Location, 
 			distToTarget = FVector::Distance(GetActorLocation(), targetPos);
 			inFightRange = distToTarget < fightRange;
 			if (inFightRange){
-				if (mystate != MutationStates::fight && mystate != MutationStates::approach && mystate != MutationStates::evading && mystate != MutationStates::attacking) {
+				if (mystate != MutationStates::fight && mystate != MutationStates::approach && mystate != MutationStates::evading && mystate != MutationStates::attacking && mystate != MutationStates::heightRoll) {
 					mystate = MutationStates::fight;
+					DecideWhichSideFacesPlayer();
 					myController->SetInFightRange(inFightRange);
 					PawnSensingComp->SetActive(!inFightRange);
 					PawnSensingComp->SetSensingUpdatesEnabled(!inFightRange);
@@ -274,7 +310,7 @@ void AMutationChar::OnSeenTarget(APawn* PawnInstigator)
 	if (myController && PawnInstigator != this)
 	{
 		myTarget = Cast<AMyPlayerCharacter>(PawnInstigator);
-		if (myTarget) {
+		if (myTarget && mystate < MutationStates::suffering) {
 			UE_LOG(LogTemp, Warning, TEXT("[Mutation] target seen!."));
 			//Updates our target based on what we've heard.
 			myController->SetTargetLocated(true);
@@ -294,8 +330,9 @@ void AMutationChar::OnSeenTarget(APawn* PawnInstigator)
 			distToTarget = FVector::Distance(GetActorLocation(), targetPos);
 			inFightRange = distToTarget < fightRange;
 			if (inFightRange) {
-				if (mystate != MutationStates::fight && mystate != MutationStates::approach && mystate != MutationStates::evading && mystate != MutationStates::attacking) {
+				if (mystate != MutationStates::fight && mystate != MutationStates::approach && mystate != MutationStates::evading && mystate != MutationStates::attacking && mystate != MutationStates::heightRoll) {
 					mystate = MutationStates::fight;
+					DecideWhichSideFacesPlayer();
 					myController->SetInFightRange(inFightRange);
 					PawnSensingComp->SetActive(!inFightRange);
 					PawnSensingComp->SetSensingUpdatesEnabled(!inFightRange);
@@ -333,16 +370,8 @@ bool AMutationChar::CheckRange()
 
 	if (inFightRange) {
 		if (mystate != MutationStates::fight) {
-			
-			//calculating what direction to rotate to face player
-			FVector targetDir = myTarget->GetActorLocation() - GetActorLocation();
-			targetDir.Normalize();
-			FVector pseudoUp = FVector::CrossProduct(GetActorForwardVector(), targetDir);
-			if(FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(pseudoUp, FVector::UpVector))) < 90)
-				rotateToFaceTargetDir = 1;
-			else
-				rotateToFaceTargetDir = -1;
-
+						
+			DecideWhichSideFacesPlayer();
 			mystate = MutationStates::fight;
 			//PawnSensingComp->SetActive(true);
 			//PawnSensingComp->SetSensingUpdatesEnabled(true);
@@ -533,7 +562,8 @@ void AMutationChar::Navigating(float DeltaTime){
 
 						float deacelRate = pow((distToTarget - moveTolerance) / (flyStopFactor*moveTolerance - moveTolerance), 0.5f);
 						myCharMove->Velocity *= deacelRate;
-						UE_LOG(LogTemp, Warning, TEXT("[mutation] deacel %f"), deacelRate);
+						if(debugInfo)
+							UE_LOG(LogTemp, Warning, TEXT("[mutation] deacel %f"), deacelRate);
 					}
 					float currDist = FVector::Distance(GetActorLocation(), targetPos);
 					if (oldTargetDist >= currDist) {
@@ -719,7 +749,11 @@ void AMutationChar::CombatAction(int near_i){
 					DashSideways();
 				break;
 			case 3:
+				heightRollMid = false;
+				GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::ClearHeightRoll, 0.3f, false);
+				//do a height Roll
 				mystate = MutationStates::heightRoll;
+				myCharMove->bOrientRotationToMovement = false;
 				break;
 			default:
 				GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("[Mutation] combatAction ID not recognized!"));
@@ -736,8 +770,8 @@ void AMutationChar::CombatAction(int near_i){
 void AMutationChar::StartLethal() {
 	advanceAtk = atkWalker->advanceAtkValue;
 	knockingDown = atkWalker->knockDown;
-	if(myMesh->GetChildComponent(0))
-		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(true);
+	if(mainWeaponComp)
+		Cast<UPrimitiveComponent>(mainWeaponComp)->SetGenerateOverlapEvents(true);
 
 	float time2NotLethal = atkWalker->lethalTime*(1 - atkWalker->telegraphPortion)*(atkWalker->myAnim->SequenceLength / atkWalker->speed);
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::StopLethal, time2NotLethal, false);
@@ -760,8 +794,8 @@ void AMutationChar::StopLethal() {
 	const FRotator lookToYaw(0, lookToRot.Yaw, 0);	
 	SetActorRotation(lookToYaw);
 
-	if (myMesh->GetChildComponent(0))
-		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
+	if (mainWeaponComp)
+		Cast<UPrimitiveComponent>(mainWeaponComp)->SetGenerateOverlapEvents(false);
 	float time4NextHit = (1 - (atkWalker->time2lethal + atkWalker->lethalTime))*(1-atkWalker->telegraphPortion)*(atkWalker->myAnim->SequenceLength / atkWalker->speed) + atkWalker->coolDown;
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::NextComboHit, time4NextHit, false);
 }
@@ -769,14 +803,18 @@ void AMutationChar::StopLethal() {
 void AMutationChar::ResetFightAnims() {
 	UE_LOG(LogTemp, Warning, TEXT("[mutation] finished attacking"));
 	atkWalker = &attackList[0];
+	heightRollMid = false;
 		
 	//stop drifting
 	myCharMove->StopActiveMovement();
 	myController->StopMovement();
 	myCharMove->Velocity *= 0;
 	
-	myMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
-	myAnimBP = Cast<UMutationAnimComm>(myMesh->GetAnimInstance());
+	if (myMesh->GetAnimationMode() != EAnimationMode::AnimationBlueprint) {
+		myMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+		myAnimBP = Cast<UMutationAnimComm>(myMesh->GetAnimInstance());
+	}
+
 	if (debugInfo)
 		GEngine->AddOnScreenDebugMessage(-1, 0.2f, FColor::Blue, TEXT("[Mutation] following the anim blueprint again!"));
 	
@@ -809,6 +847,7 @@ void AMutationChar::MeleeAttack() {
 
 	myMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 	myMesh->PlayAnimation(atkWalker->myAnim, false);
+	UGameplayStatics::PlaySoundAtLocation(world, meleeAtkSFX, GetActorLocation(), SFXvolume);
 
 	float time2Lethal = atkWalker->time2lethal*(atkWalker->myAnim->SequenceLength / atkWalker->speed);
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::StartLethal, time2Lethal, false);
@@ -836,6 +875,7 @@ void AMutationChar::SpiralAttack() {
 	
 	myMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 	myMesh->PlayAnimation(spiralAtkNode.myAnim, false);
+	UGameplayStatics::PlaySoundAtLocation(world, spiralAtkSFX, GetActorLocation(), SFXvolume);
 	
 	float time2Lethal = atkWalker->telegraphPortion*(atkWalker->myAnim->SequenceLength / atkWalker->speed);
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::StartLethal, time2Lethal, false);
@@ -888,11 +928,16 @@ void AMutationChar::CancelAttack() {
 	world->GetTimerManager().ClearTimer(timerHandle);
 	myCharMove->MaxWalkSpeed = normalSpeed;
 	myCharMove->MaxAcceleration = normalAcel;
-	//myController->StopBT();
+	myController->StopBT();
 	
 	advanceAtk = 0.0f;
-	if (myMesh->GetChildComponent(0))
-		Cast<UPrimitiveComponent>(myMesh->GetChildComponent(0))->SetGenerateOverlapEvents(false);
+	if (mainWeaponComp)
+		Cast<UPrimitiveComponent>(mainWeaponComp)->SetGenerateOverlapEvents(false);
+
+	//reset anims
+	myMesh->Stop();
+	myMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+	myAnimBP = Cast<UMutationAnimComm>(myMesh->GetAnimInstance());
 }
 
 void AMutationChar::MyDamage(float DamagePower, FVector AlgozPos, bool KD) {
@@ -902,12 +947,12 @@ void AMutationChar::MyDamage(float DamagePower, FVector AlgozPos, bool KD) {
 	UE_LOG(LogTemp, Warning, TEXT("mutation %s in damage"), *GetName());
 	//stop the traversing
 	donePath = true;
-		
+	
 	CancelAttack();
 	myCharMove->StopActiveMovement();
 	myController->StopMovement();
 	myCharMove->Velocity *= 0;
-	myCharMove->bOrientRotationToMovement = false;	
+	myCharMove->bOrientRotationToMovement = false;
 	
 	//look to your algoz
 	LookTo(AlgozPos);
@@ -922,23 +967,18 @@ void AMutationChar::MyDamage(float DamagePower, FVector AlgozPos, bool KD) {
 		Death();
 
 	//play damage animation
-	myMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
-	myAnimBP = Cast<UMutationAnimComm>(myMesh->GetAnimInstance());
-
 	if (KD) {
-		mystate = MutationStates::kdFlight;
-		kdrecovering = true;
 		recoilPortion = 1.0f;
 		flying = false;
 		myCharMove->MovementMode = MOVE_Flying;
-
-		
+				
 		//play damage sound
 
 		myAnimBP->damage = 10;
 
 		//hit pause, or, in this case, time dilation
 		UGameplayStatics::SetGlobalTimeDilation(world, 0.1f);
+		UGameplayStatics::PlaySoundAtLocation(world, knockDownSFX, GetActorLocation(), SFXvolume);
 		//start stabilize timer
 		GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::DelayedStartKDtakeOff, hitPauseDuration, false);
 	}
@@ -949,10 +989,14 @@ void AMutationChar::MyDamage(float DamagePower, FVector AlgozPos, bool KD) {
 		//play damage sound
 				
 	
-		if (FMath::RandRange(0, 10) < 5)
+		if (FMath::RandRange(0, 10) < 5) {
 			myAnimBP->damage = 1;
-		else
+			UGameplayStatics::PlaySoundAtLocation(world, damage1SFX, GetActorLocation(), SFXvolume);
+		}
+		else {
 			myAnimBP->damage = 2;
+			UGameplayStatics::PlaySoundAtLocation(world, damage2SFX, GetActorLocation(), SFXvolume);
+		}
 	
 		//hit pause, or, in this case, time dilation
 		UGameplayStatics::SetGlobalTimeDilation(world, 0.1f);
@@ -964,9 +1008,19 @@ void AMutationChar::Death() {
 	if (debugInfo) {
 		GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, "[Mutation %s] is dead"+GetName());
 	}
+
+	UGameplayStatics::SetGlobalTimeDilation(world, 1.0f);
+
+	//check if player was locked to me and disengage targetlock if so
+	myTarget->MutationDied(mutation_i);
+
+	myGameState->RemoveMutation(mutation_i, grabable_i, grappable_i);
+	AActor::Destroy();
 }
 void AMutationChar::DelayedStartKDtakeOff() {
 	UGameplayStatics::SetGlobalTimeDilation(world, 1.0f);
+	mystate = MutationStates::kdFlight;
+	kdrecovering = true;
 	recoilPortion = 1.0f;
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::DelayedStartKDFlight, knockDownTakeOffTime, false);
 }
@@ -991,6 +1045,15 @@ void AMutationChar::DelayedKDRise() {
 void AMutationChar::Stabilize() {
 	UE_LOG(LogTemp, Warning, TEXT("[mutation] recovered from damage"));
 
+	//reset speeds that were changed on the SpiralAttack
+	myCharMove->MaxWalkSpeed = normalSpeed;
+	myCharMove->MaxAcceleration = normalAcel;
+	myCharMove->MaxFlySpeed = normalSpeed;
+	advanceAtk = 0.0f;
+	myCharMove->Velocity *= 0.0f;
+
+	myController->RestartBT();
+
 	myAnimBP->damage = 0;
 	recoilPortion = 0.0f;
 
@@ -1001,8 +1064,10 @@ void AMutationChar::Stabilize() {
 	}
 	else{
 		targetPos = myTarget->GetActorLocation();
-		if (mystate != MutationStates::escape)
-			mystate = MutationStates::fight;	
+		if (mystate != MutationStates::escape) {
+			mystate = MutationStates::fight;
+			DecideWhichSideFacesPlayer();
+		}
 	}
 }
 
@@ -1023,15 +1088,152 @@ void AMutationChar::OnOverlapEnd(UPrimitiveComponent* OverlappedComponent, AActo
 		myTarget = Cast<AMyPlayerCharacter>(OtherActor);
 		
 		if (myTarget) {
-			if (mystate != MutationStates::suffering && mystate != MutationStates::kdFlight) {
-				MyDamage(myTarget->attackPower, myTarget->GetActorLocation(), myTarget->knockingDown);
+			if (debugInfo) {
+			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Black, FString::Printf(TEXT("[OverlapEnd] my name: %s hitObj %s compName %s otherIndex %d"), *GetName(), *OtherActor->GetName(), *OtherComp->GetName(), OtherBodyIndex));
+			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, FString::Printf(TEXT("[algoz] %d"), myTarget->mystate));
 			}
 
-			if (debugInfo) {
-				GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Black, "[OverlapEnd] my name: " + GetName() + "hit obj: " + *OtherActor->GetName());
-				GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, FString::Printf(TEXT("[algoz] %d"), myTarget->mystate));
+			if (OtherComp->GetName() == myTarget->swordComp->GetName()) {
+				if (mystate != MutationStates::suffering && mystate != MutationStates::kdFlight && mystate != MutationStates::grabbed) {
+					MyDamage(myTarget->attackPower, myTarget->GetActorLocation(), myTarget->knockingDown);
+				}
+			}
+			else {
+				//check if grab or hook
+				if (OtherComp->GetName() == myTarget->grabComp->GetName()) {
+					if (grabable_i >= 0 && !myTarget->mutationGrabbed) {
+						thrownByPlayer = false;
+						CancelAttack();
+						mystate = MutationStates::grabbed;
+
+						myTarget->grabTarget_i = grabable_i;
+						UGameplayStatics::PlaySoundAtLocation(world, begrabbedSFX, GetActorLocation(), SFXvolume);
+						myTarget->GrabSuccess();
+
+						grabbingSocketName = OtherComp->GetAttachSocketName();
+
+						//change parent to player hand socket
+						myMesh->AttachToComponent(OtherComp, FAttachmentTransformRules::KeepRelativeTransform, grabbingSocketName);
+
+						//turn on ragdoll stuff
+						SetRagdoll(true);
+
+						//reset speeds that were changed on the SpiralAttack
+						myCharMove->MaxWalkSpeed = normalSpeed;
+						myCharMove->MaxAcceleration = normalAcel;
+						myCharMove->MaxFlySpeed = normalSpeed;
+						advanceAtk = 0.0f;
+						myCharMove->Velocity *= 0.0f;
+
+						if (mainWeaponComp)
+							Cast<UPrimitiveComponent>(mainWeaponComp)->SetGenerateOverlapEvents(false);
+					}
+					else {
+						//send a grab fail
+						myTarget->GrabFail();
+					}
+				}
 			}
 		}
 	}
 }
+void AMutationChar::Grappled() {
+	thrownByPlayer = false;
+	CancelAttack();
+	mystate = MutationStates::grabbed;
+}
+void AMutationChar::DelayedFromGrabRecover(){
+	FVector projForth = FVector::VectorPlaneProject(GetActorForwardVector(), FVector::UpVector);
+	FVector forthPos = GetActorLocation() + projForth;
+	ScanRotation = UKismetMathLibrary::FindLookAtRotation(GetActorLocation(), forthPos);
 
+	thrownTime = mytime;
+	
+	//enable collisions so mutations do not get throw through objects
+	//myCapsuleComp->BodyInstance.SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics, false);
+	myCapsuleComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	myCapsuleComp->SetGenerateOverlapEvents(true);
+
+	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::FromGrabRecover, grabRecoverTime, false);
+}
+void AMutationChar::FromGrabRecover() {
+	SetActorRotation(ScanRotation);
+	//turn off ragdoll stuff
+	SetRagdoll(false);
+
+	myCharMove->MaxFlySpeed = normalSpeed;
+	myCharMove->MaxWalkSpeed = normalSpeed;
+	myCharMove->MaxAcceleration = normalAcel;
+
+	ResetFightAnims();
+	myCapsuleComp->SetGenerateOverlapEvents(true);
+	//release it to fight
+	mystate = MutationStates::fight;
+	DecideWhichSideFacesPlayer();
+}
+void AMutationChar::OutOfAction() {
+	CancelAttack();
+	myController->StopBT();
+	myCharMove->StopActiveMovement();
+	myController->StopMovement();
+	myCharMove->Velocity *= 0;
+	mystate = MutationStates::dizzy;
+}
+void AMutationChar::FromGrappleRecover() {
+	OutOfAction();
+	mystate = MutationStates::dizzy;
+
+	GetWorldTimerManager().SetTimer(timerHandle, this, &AMutationChar::Stabilize, dizzyTime, false);
+}
+void AMutationChar::SetRagdoll(bool Activation) {
+	//turn off collisions on original collider
+	myCapsuleComp->SetGenerateOverlapEvents(!Activation);
+	//turn off collisions on damageDetector
+	damageDetector->SetGenerateOverlapEvents(!Activation);
+	
+	myMesh->SetAllBodiesBelowSimulatePhysics(skeletonRootName, Activation, false);
+	if (Activation) {
+		//myCapsuleComp->BodyInstance.SetCollisionEnabled(ECollisionEnabled::NoCollision, false);		
+		myCapsuleComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		myMesh->SetAllBodiesBelowPhysicsBlendWeight(skeletonRootName, 1.0f, false, false);
+	}
+	else{
+		//myCapsuleComp->BodyInstance.SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics, false);
+		myCapsuleComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		myMesh->SetAllBodiesBelowPhysicsBlendWeight(skeletonRootName, 0.0f, false, false);
+		myController->RestartBT();
+	}
+}
+void AMutationChar::GrabThrow(FVector GrabThrowDir, float GrabThrowSpeed) {
+	CancelAttack();
+	myCharMove->MovementMode = MOVE_Flying;
+	myCharMove->StopActiveMovement();
+
+	myCharMove->MaxFlySpeed = GrabThrowSpeed;
+	myCharMove->MaxAcceleration = spiralAcel;
+
+	thrownByPlayer = true;
+	grabFlightDir = GrabThrowDir;
+	//start delayed recover
+	DelayedFromGrabRecover();
+}
+void AMutationChar::ClearHeightRoll() {
+	heightRollMid = true;
+}
+void AMutationChar::DecideWhichSideFacesPlayer() {
+	//calculating what direction to rotate to face player
+	FVector targetDir = myTarget->GetActorLocation() - GetActorLocation();
+	targetDir.Normalize();
+	FVector pseudoUp = FVector::CrossProduct(GetActorForwardVector(), targetDir);
+	if (FMath::RadiansToDegrees(FMath::Acos(FVector::DotProduct(pseudoUp, FVector::UpVector))) < 90)
+		rotateToFaceTargetDir = 1;
+	else
+		rotateToFaceTargetDir = -1;
+}
+void AMutationChar::FellOutOfWorld(const class UDamageType& dmgType)
+{
+	UE_LOG(LogTemp, Warning, TEXT("mutation fell from the world"));
+	GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Black, "[mutation] " + GetName() + " fell from world");
+
+	Death();
+}

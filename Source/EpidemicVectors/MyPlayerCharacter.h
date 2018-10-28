@@ -18,6 +18,8 @@
 #include "MutationChar.h"
 //#include "Runtime/Engine/Classes/Engine/World.h"
 #include "Runtime/Engine/Classes/Kismet/GameplayStatics.h"
+#include "Runtime/Engine/Classes/Kismet/KismetSystemLibrary.h"
+
 //#include "Runtime/Engine/Classes/Components/StaticMeshComponent.h"
 #include "AnimComm.h"
 #include "Perception/PawnSensingComponent.h"
@@ -60,7 +62,7 @@ public:
 };
 
 
-UCLASS()
+UCLASS(BlueprintType)
 class EPIDEMICVECTORS_API AMyPlayerCharacter : public ACharacter
 {
 	GENERATED_BODY()
@@ -71,12 +73,16 @@ public:
 		idle,
 		attacking,		
 		hookFlying,
+		hookThrown,
 		evading,
 		suffering,
 		kdTakeOff,
 		kdFlight,
 		kdGround,
 		kdRise,
+		grabbing,
+		hookThrowing,
+		hookAiming,
 	};	
 
 	// Sets default values for this character's properties
@@ -106,16 +112,12 @@ public:
 		class UCameraComponent* FollowCamera;
 	
 	/** Base turn rate, in deg/sec. Other scaling may affect final turn rate. */
-	UPROPERTY(EditAnywhere, Category = Camera)
-		float BaseTurnRate;
-	UPROPERTY(EditAnywhere, Category = Camera)
-		float TurnRate;
+	UPROPERTY(EditAnywhere, Category = Camera) float BaseTurnRate;
+	UPROPERTY(EditAnywhere, Category = Camera) float TurnRate;
 
 	/** Base look up/down rate, in deg/sec. Other scaling may affect final rate. */
-	UPROPERTY(EditAnywhere, Category = Camera)
-		float BaseLookUpRate;
-	UPROPERTY(EditAnywhere, Category = Camera)
-		float LookUpRate;
+	UPROPERTY(EditAnywhere, Category = Camera) float BaseLookUpRate;
+	UPROPERTY(EditAnywhere, Category = Camera) float LookUpRate;
 
 	//combat related variables
 	UAnimComm * myAnimBP;
@@ -129,6 +131,7 @@ public:
 	bool evadeLock;
 	bool updateAtkDir;
 	bool inAir;
+	bool grounded;
 	bool flying;
 	bool atk1Hold;
 	bool atk2Hold;
@@ -136,6 +139,7 @@ public:
 	float startedHold2;
 	float mytime;
 	float startReorient;
+	
 	UPROPERTY(EditAnywhere, Category = Combat)bool debugInfo;
 	UPROPERTY(EditAnywhere, Category = Combat)float reorientTime;
 	UPROPERTY(EditAnywhere, Category = Combat)float msgTime;
@@ -147,13 +151,18 @@ public:
 	int atkIndex;
 	int atkChainIndex;
 	bool knockingDown;
+	int grabTarget_i = -1;
+	bool mutationGrabbed;
 	
+	UPROPERTY(EditAnywhere, Category = Movement) float normalGravity=1.0f;
 	UPROPERTY(EditAnywhere, Category = Movement) float normalSpeed;
 	UPROPERTY(EditAnywhere, Category = Movement) float dashSpeed;
 	UPROPERTY(EditAnywhere, Category = Movement) float normalAcel;
 	UPROPERTY(EditAnywhere, Category = Movement) float dashAcel;
 
 	UPROPERTY(EditAnywhere, Category = Combat) float throwPower;
+	UPROPERTY(EditAnywhere, Category = Combat) float throwOffsetHeight = 200.0f;
+	UPROPERTY(EditAnywhere, Category = Combat) float throwUpOffset = 200.0f;
 	UPROPERTY(EditAnywhere, Category = Combat) float aimTimeDilation;
 	UPROPERTY(EditAnywhere, Category = Combat) float disengageHookDist;
 	UPROPERTY(EditAnywhere, Category = Combat) float normalAirCtrl;
@@ -168,6 +177,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat) float dashAnimGain = 0.5f;
 	UPROPERTY(EditAnywhere, Category = Combat) float dashTime = 0.5f;
 	UPROPERTY(EditAnywhere, Category = Combat) float hookRange = 1500.0f;
+	UPROPERTY(EditAnywhere, Category = Combat) float hookSpeed = 100.0f;
 	UPROPERTY(EditAnywhere, Category = Combat) float recoverStaminaDelay = 1.0f;
 	UPROPERTY(EditAnywhere, Category = Combat) float recoverStaminaRate = 0.5f;
 	UPROPERTY(EditAnywhere, Category = Combat) float evadeRate = 2.5f;
@@ -179,15 +189,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float damageTime = 0.3f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float takeOffTime = 0.3f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float recoverTime = 0.3f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float fastRecoverSpeedTarget = 100.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float quickRecoverSpeedTgt = 100.0f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float riseTime = 0.5f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float seesawRiseTime = 0.6f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float spinRiseTime = 0.8f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float riseAtkCoolDown = 0.3f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float throwHookTime = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float hookReturnTime = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float grabTime = 0.5f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float hitPause = 0.01f;
-
-
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) FName grabbingHandSocket = "vanq_LeftHand";
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) FName hookSocket = "vanq_LeftForeArm";
+		
 	//input buttons
 	UPROPERTY(EditAnywhere, Category = Combat) FKey atk1Key;//square
 	UPROPERTY(EditAnywhere, Category = Combat) FKey atk2Key;//triangle
@@ -203,7 +216,20 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat) FKey vertical_Up;
 	UPROPERTY(EditAnywhere, Category = Combat) FKey vertical_Down;
 	UPROPERTY(EditAnywhere, Category = Combat) FKey horizontalCam;
-	UPROPERTY(EditAnywhere, Category = Combat) FKey verticalCam;	
+	UPROPERTY(EditAnywhere, Category = Combat) FKey verticalCam;
+	//joystick
+	UPROPERTY(EditAnywhere, Category = Combat) FKey atk1_jKey;//square
+	UPROPERTY(EditAnywhere, Category = Combat) FKey atk2_jKey;//triangle
+	UPROPERTY(EditAnywhere, Category = Combat) FKey hook_jKey;//right trigger
+	UPROPERTY(EditAnywhere, Category = Combat) FKey jump_jKey;//circle
+	UPROPERTY(EditAnywhere, Category = Combat) FKey dash_jKey;//cross
+	UPROPERTY(EditAnywhere, Category = Combat) FKey shield_jKey;//right bumper
+	UPROPERTY(EditAnywhere, Category = Combat) FKey grab_jKey;//left trigger
+	UPROPERTY(EditAnywhere, Category = Combat) FKey targetLock_jKey;//left bumper
+	UPROPERTY(EditAnywhere, Category = Combat) FKey horizontal_j;
+	UPROPERTY(EditAnywhere, Category = Combat) FKey vertical_j;
+	UPROPERTY(EditAnywhere, Category = Combat) FKey horizontal_jCam;
+	UPROPERTY(EditAnywhere, Category = Combat) FKey vertical_jCam;
 	//knockdown animations
 	UPROPERTY(EditAnywhere, Category = Combat) FAtkNode prepSuperHitL;
 	UPROPERTY(EditAnywhere, Category = Combat) FAtkNode superHitL;
@@ -217,6 +243,38 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat) TArray<FAtkNode> attackList;
 	UPROPERTY(EditAnywhere, Category = Combat) TArray<FAtkNode> attackAirList;
 	
+	UPROPERTY(EditAnywhere, Category = "SFX") float SFXvolume = 1.0f;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* ChargeSlashL_iSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* ChargeSlashL_endSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* ChargeSlashR_iSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* ChargeSlashR_endSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* BasicSlashSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* DamageSFX1;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* DamageSFX2;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* DamageSFX3;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* DamageKDSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* DamageKDspiralSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* KDhitGroundSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* quickRecoverSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* normalRiseSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* spinRiseSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* seesawRiseSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* jumpSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* landSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* dashStartSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* evadeSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* grabStartSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* grabFailSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* grabConnectSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* grabThrowSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* grapplePrepareSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* grappleFireSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* grapConnMutationSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* grapConnPointSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* grappleCancelSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* grappleReturnSFX;
+	UPROPERTY(EditAnywhere, Category = "SFX") USoundBase* grappleFailSFX;
+
 	AVectorsGameStateBase *myGameState;
 		
 	UWorld* world;
@@ -235,25 +293,36 @@ public:
 	float grabRight;
 	float grabHeight;	
 
+	USceneComponent* swordComp;
+	USceneComponent* grabComp;
+	USceneComponent* hookComp;
+	
 	/*A Pawn Noise Emitter component which is used in order to emit the sounds to nearby AIs*/
-	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
-		UPawnNoiseEmitterComponent* PawnNoiseEmitterComp;
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite) UPawnNoiseEmitterComponent* PawnNoiseEmitterComp;
 
 	/*The function that is going to play the sound and report it to our game*/
-	UFUNCTION(BlueprintCallable, Category = AI)
-		void ReportNoise(USoundBase* SoundToPlay, float Volume);
+	UFUNCTION(BlueprintCallable, Category = AI)	void ReportNoise(USoundBase* SoundToPlay, float Volume);
+
+	/*The function that is going to play the sound and report it to our game*/
+	UFUNCTION(BlueprintCallable, Category = AI)	void ReportFinishHookThrow();
 	
+	UFUNCTION(BlueprintCallable, Category = AI) void ReportHookConnected();
+
 private:
 	APlayerController* player;
 	FAtkNode* atkWalker;
+	AMutationChar *hookedMutation;
+	
+	FCollisionQueryParams RayParams;
+	FHitResult hitres;
 	
 	INT32 width, height;	
-	int grapleTarget_i = -1;
-	int grabTarget_i = -1;
+	int grapleTarget_i = -1;	
 	int target_i = -1;
 	bool aiming;
 	float grappleValue;
 	bool targetLocked = false;
+	bool oldTargetLocked;
 	bool targetLockUpdated = false;
 	bool targetLocking = false;
 	FRotator lookToTarget;
@@ -262,6 +331,15 @@ private:
 	bool dashing;
 	bool dashDesire;
 	bool arising;
+	bool waiting4Hook;
+	FVector hookRelPos;
+	FQuat hookRelRot;
+	FVector hookDir;
+	FVector hookPos;
+	float hookCurrSpeed;
+	FVector targetDir;
+	float distToTarget;
+	bool inviewport;
 	
 	float dashStart;
 	float dashPowerRate;
@@ -305,6 +383,8 @@ private:
 	void Listen4Dash();
 	void Listen4Move(float DeltaTime);
 	void Listen4Attack();
+	void Listen4Hook();
+	void Listen4Grab();
 	void Advance();
 	void Listen4Look();
 	void Look2Dir(FVector LookDir);
@@ -312,10 +392,13 @@ private:
 	void DelayedStabilize();
 	void Stabilize();
 	void MyDamage(float DamagePower, bool KD, bool Spiral);
+	void ResetSpeeds();
 	void DelayedKDtakeOff();
 	void DelayedKDground();
 	void DelayedAtkRise();
-	void DelayedHookPull();
+	void HookFail();
+	void HookReturn();
+	void DelayedMutationGrabToIdle();
 	void KnockDownFlight();
 	void Death();
 public:
@@ -324,9 +407,16 @@ public:
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
+	void GrabFail();
+	void GrabSuccess();
+	void MutationDied(int MutationID);
+	UFUNCTION(BlueprintCallable) void HookConnect();
+
 private:
-	UFUNCTION()
-		void OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
-	UFUNCTION()
-		 void OnBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+	//UFUNCTION() void OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
+	UFUNCTION() void OnBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	UFUNCTION() void HookOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+	
+	void FellOutOfWorld(const class UDamageType& dmgType);
 };

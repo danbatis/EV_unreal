@@ -69,7 +69,7 @@ public:
 	void MoveForward(float Value);
 	void MoveRight(float Value);
 	void MoveDir(float Value, EAxis::Type Dir);
-	void OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
+	//void OnCompHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
 	
 	UFUNCTION()
 		void OnOverlap(AActor* MyOverlappedActor, AActor* OtherActor);

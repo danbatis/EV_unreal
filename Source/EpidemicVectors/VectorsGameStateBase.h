@@ -21,12 +21,14 @@ class EPIDEMICVECTORS_API AVectorsGameStateBase : public AGameStateBase
 	
 public:
 	virtual void BeginPlay() override;
-
+	void InitLists();
+	void RemoveMutation(int Mutation_i, int Grab_i, int Grap_i);
+	
 	UWorld* world;
 	//to store all mutations in scene
 	TArray<AMutationChar*> mutations;
 	//all grappable elements
 	TArray<AActor*> grappables;
 	//all grabable elements
-	TArray<AActor*> grabables;
+	TArray<AMutationChar*> grabables;
 };
