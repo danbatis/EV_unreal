@@ -373,10 +373,10 @@ bool AMutationChar::CheckRange()
 						
 			DecideWhichSideFacesPlayer();
 			mystate = MutationStates::fight;
-			//PawnSensingComp->SetActive(true);
-			//PawnSensingComp->SetSensingUpdatesEnabled(true);
-			//PawnSensingComp->bSeePawns = true;
-			//PawnSensingComp->bHearNoises = true;
+			PawnSensingComp->SetActive(true);
+			PawnSensingComp->SetSensingUpdatesEnabled(true);
+			PawnSensingComp->bSeePawns = true;
+			PawnSensingComp->bHearNoises = true;
 			return false;
 		}
 		else {
@@ -539,7 +539,9 @@ void AMutationChar::Navigating(float DeltaTime){
 					UE_LOG(LogTemp, Warning, TEXT("arrived at point: %d"), nextPatrol_i);
 					NextPatrolPoint();
 				}
-			
+				if(myTarget)
+					DecideWhichSideFacesPlayer();
+
 				if (!reachedGoal) {
 					myController->SetBlindSearch(true);
 					targetSensedTime = mytime;

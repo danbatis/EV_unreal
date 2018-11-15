@@ -18,14 +18,19 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float speedv;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float speedh;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	float idleBlend;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool inAir;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool jumped;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool dash;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool airdashed;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)	bool attacking;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int attackIndex;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int knockDown;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int damageIndex;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)	int knockDownIndex;
-	
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FPoseSnapshot lastPose;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) UAnimSequence *immediateAnim;
+
 };
