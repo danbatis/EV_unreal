@@ -107,6 +107,10 @@ void AMyPlayerCharacter::BeginPlay()
 	}
 	hookRelPos = hookComp->GetRelativeTransform().GetLocation();
 	hookRelRot = hookComp->GetRelativeTransform().GetRotation();
+
+	//inverting joystick
+	invertJoystickY ? verticalJoyDir = 1 : verticalJoyDir = -1;
+
 	world = GetWorld();
 	player = UGameplayStatics::GetPlayerController(world, 0);//crashes if in the constructor	
 	
@@ -236,6 +240,7 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 		//if forward, then it is the infinite dash, no invincibility
 		if (vertIn > 0 && FMath::Abs(horIn) <= 0.5f && mystate != evading) {
 			mystate = idle;
+			//idleTimer = back2idleTime;
 			if(!dashLocked)
 				UGameplayStatics::PlaySoundAtLocation(world, dashStartSFX, GetActorLocation(), SFXvolume);
 			dashLocked = true;
@@ -315,6 +320,7 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 		myCharMove->AirControl = normalAirCtrl;
 		if (mystate == evading || (dashDirH==0.0f && dashDirV == 1.0f)) {
 			mystate = idle;
+			//idleTimer = back2idleTime;
 			myCharMove->Velocity *= (normalSpeed / dashSpeed);
 			dashDirH = 0.0f;
 			dashDirV = 0.0f;
@@ -343,6 +349,16 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 	}
 	myAnimBP->inAir = inAir;
 	myAnimBP->dash = dashing;
+	/*
+	if (idleTimer > 0) {
+		GEngine->AddOnScreenDebugMessage(-1, 0.5f, FColor::Yellow, TEXT("blending..."));
+		idleTimer -= DeltaTime;
+		if (idleTimer < 0.0f) {
+			idleTimer = 0.0f;
+		}
+	}
+	myAnimBP->idleBlend = 1.0f - idleTimer / back2idleTime;
+	*/
 
 	myVel = GetVelocity();
 	
@@ -536,7 +552,7 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 				
 				//bring hook back
 				//stop movement
-				Cast<UPrimitiveComponent>(hookComp)->SetPhysicsAngularVelocity(FVector::ZeroVector);
+				Cast<UPrimitiveComponent>(hookComp)->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
 				Cast<UPrimitiveComponent>(hookComp)->SetPhysicsLinearVelocity(FVector::ZeroVector);
 				hookComp->AttachToComponent(myMesh, FAttachmentTransformRules::KeepRelativeTransform, hookSocket);
 				hookComp->SetRelativeLocation(hookRelPos);
@@ -561,7 +577,7 @@ void AMyPlayerCharacter::Tick(float DeltaTime)
 				ResetAnims();
 				myAnimBP->attackIndex = 0;
 				GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Red, TEXT("returning to idle from hook flight!"));
-				mystate = idle;
+				mystate = idle;				
 			}
 			else
 			{
@@ -875,7 +891,7 @@ void AMyPlayerCharacter::ReportFinishHookThrow() {
 		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Green, FString::Printf(TEXT("throwing hook")));
 		//send hook flying in grappleTarget direction
 		//parent hook to the world
-		hookComp->DetachFromParent(true, true);
+		hookComp->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
 		hookPos = hookComp->GetComponentLocation();
 
 		myCharMove->StopMovementImmediately();
@@ -1118,20 +1134,39 @@ void AMyPlayerCharacter::KnockDownHit(bool left) {
 	float relaxTime;
 	if(left){
 		//start the attack
-		superHitL.myAnim->RateScale = superHitL.speed;
+		//superHitL.myAnim->RateScale = superHitL.speed;
 		UGameplayStatics::PlaySoundAtLocation(world, ChargeSlashL_endSFX, GetActorLocation(), SFXvolume);
-		myMesh->PlayAnimation(superHitL.myAnim, false);
+		//myMesh->PlayAnimation(superHitL.myAnim, false);
+		myAnimBP->PlaySlotAnimationAsDynamicMontage(
+			superHitL.myAnim,
+			"DefaultSlot",
+			playerTelegraph,
+			10.0f,
+			superHitL.speed,
+			1,
+			0.0f,
+			0.0f);
 		advanceAtk = superHitL.advanceAtkValue;
 		relaxTime = superHitL.myAnim->SequenceLength/superHitL.speed;
 	}
 	else{		
-		superHitR.myAnim->RateScale = superHitR.speed;
+		//superHitR.myAnim->RateScale = superHitR.speed;
 		UGameplayStatics::PlaySoundAtLocation(world, ChargeSlashR_endSFX, GetActorLocation(), SFXvolume);
-		myMesh->PlayAnimation(superHitR.myAnim, false);
+		//myMesh->PlayAnimation(superHitR.myAnim, false);
+		myAnimBP->PlaySlotAnimationAsDynamicMontage(
+			superHitR.myAnim,
+			"DefaultSlot",
+			playerTelegraph,
+			10.0f,
+			superHitR.speed,
+			1,
+			0.0f,
+			0.0f);
 		advanceAtk = superHitR.advanceAtkValue;
 		relaxTime = superHitR.myAnim->SequenceLength/superHitR.speed;
 	}
 	mystate = attacking;
+	myAnimBP->attacking = true;
 	
 	if (inAir) {
 		myCharMove->GravityScale = 0.0f;
@@ -1200,6 +1235,7 @@ void AMyPlayerCharacter::NextComboHit(){
 	}
 	else {
 		mystate = attacking;
+		myAnimBP->attacking = true;
 		updateAtkDir = true;
 		knockingDown = attackChain[atkIndex].knockDown;
 		if (knockingDown)
@@ -1215,7 +1251,7 @@ void AMyPlayerCharacter::NextComboHit(){
 
 		//play attack animation
 		atkChainIndex = atkIndex;
-		attackChain[atkIndex].myAnim->RateScale = attackChain[atkIndex].speed;
+		//attackChain[atkIndex].myAnim->RateScale = attackChain[atkIndex].speed;
 		if(inAir){
 			myCharMove->GravityScale = 0.0f;
 			//myCharMove->StopMovementImmediately();
@@ -1226,9 +1262,16 @@ void AMyPlayerCharacter::NextComboHit(){
 		}
 		else{
 			advanceAtk = attackChain[atkIndex].advanceAtkValue;
-		}
-		UGameplayStatics::PlaySoundAtLocation(world, BasicSlashSFX, GetActorLocation(), SFXvolume);
-		myMesh->PlayAnimation(attackChain[atkIndex].myAnim, false);
+		}		
+		myAnimBP->PlaySlotAnimationAsDynamicMontage(
+			attackChain[atkIndex].myAnim, 
+			"DefaultSlot", 
+			playerTelegraph, 
+			10.0f,//attackChain[atkIndex].coolDown,
+			attackChain[atkIndex].speed,
+			1, 
+			0.0f,
+			0.0f);
 		atkChainIndex++;		
 
 		//call timer to start being lethal
@@ -1237,6 +1280,7 @@ void AMyPlayerCharacter::NextComboHit(){
 	}
 }
 void AMyPlayerCharacter::StartLethal(){
+	UGameplayStatics::PlaySoundAtLocation(world, BasicSlashSFX, GetActorLocation(), SFXvolume);
 	updateAtkDir = false;
 	if (swordComp)
 		Cast<UPrimitiveComponent>(swordComp)->SetGenerateOverlapEvents(true);
@@ -1249,20 +1293,21 @@ void AMyPlayerCharacter::StopLethal(){
 	attackPower = attackNormalPower;
 	if (swordComp)
 		Cast<UPrimitiveComponent>(swordComp)->SetGenerateOverlapEvents(false);
-	float time4NextHit = (1-(attackChain[atkIndex].time2lethal+attackChain[atkIndex].lethalTime))*(attackChain[atkIndex].myAnim->SequenceLength / attackChain[atkIndex].speed)+ attackChain[atkIndex].coolDown;
+	float time4NextHit = (1-(attackChain[atkIndex].time2lethal+attackChain[atkIndex].lethalTime))*(attackChain[atkIndex].myAnim->SequenceLength / attackChain[atkIndex].speed);
 	atkIndex++;
 	GetWorldTimerManager().SetTimer(timerHandle, this, &AMyPlayerCharacter::NextComboHit, time4NextHit, false);
 }
 void AMyPlayerCharacter::Relax(){
 	ResetAnims();
 	ResetSpeeds();
-	arising = false;
+	
 	advanceAtk = 0.0f;
 	//atk1Index = 0;
 	//myAnimBP->attackIndex = atk1Index;
 	knockDownIndex = 0;
 	//myAnimBP->knockDown = knockDownIndex;
 	mystate = idle;
+	//idleTimer = back2idleTime;
 	//if (!lookInCamDir)
 	//	myCharMove->bOrientRotationToMovement = true;
 
@@ -1283,9 +1328,9 @@ void AMyPlayerCharacter::CancelKnockDownPrepare(bool left){
 	if (!atk1Hold && !atk2Hold) {
 		knockDownIndex = 0;
 		//myAnimBP->knockDown = knockDownIndex;
-		if (attackChain.Num() == 0) {
-			Relax();
-		}
+		//if (attackChain.Num() == 0) {
+		//	Relax();
+		//}		
 		if (debugInfo)
 			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("knockDownAtk cancelled"));
 	}
@@ -1315,14 +1360,18 @@ void AMyPlayerCharacter::CancelAttack() {
 	ResetAnims();
 }
 void AMyPlayerCharacter::ResetAnims(){
+	//myMesh->SnapshotPose(lastPose);
+	//lastPose.SnapshotName = "beforeIdle";
 	if (myMesh->GetAnimationMode() != EAnimationMode::AnimationBlueprint) {
 		myMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
 		myAnimBP = Cast<UAnimComm>(myMesh->GetAnimInstance());
-		if (debugInfo)
-			GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("following the anim blueprint again!"));
+		
+		GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, TEXT("following the anim blueprint again!"));
 	}
+	myAnimBP->attacking = false;
 	myAnimBP->damageIndex = 0;
 	myAnimBP->attackIndex = 0;
+	//myAnimBP->lastPose = lastPose;
 }
 
 void AMyPlayerCharacter::ResetAttacks(){
@@ -1334,6 +1383,7 @@ void AMyPlayerCharacter::ResetAttacks(){
 
 	myAnimBP->attackIndex = 0;
 	mystate = idle;
+	//idleTimer = back2idleTime;
 	if (debugInfo)
 		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("entered ResetAttacks"));
 
@@ -1377,9 +1427,26 @@ void AMyPlayerCharacter::Listen4Move(float DeltaTime){
 	*/
 }
 void AMyPlayerCharacter::Listen4Look(){
-	
-	Turn(player->GetInputAnalogKeyState(horizontalCam) + player->GetInputAnalogKeyState(horizontal_jCam));
-	LookUp((-1)*player->GetInputAnalogKeyState(verticalCam)+ (-1)*player->GetInputAnalogKeyState(vertical_jCam));
+	Turn(player->GetInputAnalogKeyState(horizontalCam) + joyTurnGain * player->GetInputAnalogKeyState(horizontal_jCam));
+	LookUp((-1)*player->GetInputAnalogKeyState(verticalCam)+ verticalJoyDir*player->GetInputAnalogKeyState(vertical_jCam));
+
+	if (player->WasInputKeyJustPressed(quickTurnKey) || player->WasInputKeyJustPressed(quickTurn_j)) {
+		//quickly turn 180 degrees
+		FRotator quickTurnRot = FRotator(0.0f, 180.0f, 0.0f);
+		FQuat quickTurnQuat = FQuat(quickTurnRot);
+		AddActorLocalRotation(quickTurnQuat, false, 0, ETeleportType::None);
+		Controller->SetControlRotation(quickTurnRot+Controller->GetControlRotation());
+	}
+	if (player->WasInputKeyJustPressed(lookInCharDir_j)) {
+		//orient camera in character's direction
+		forthVec = GetActorForwardVector();
+		myLoc = GetActorLocation();
+		targetLoc = myLoc + forthVec * 200.0f;
+		lookToTarget = UKismetMathLibrary::FindLookAtRotation(myLoc, targetLoc);
+		lookToTarget.Pitch = 0;
+		lookToTarget.Roll = 0;
+		Controller->SetControlRotation(lookToTarget);
+	}
 }
 void AMyPlayerCharacter::Listen4Attack(){
 	if (player->WasInputKeyJustPressed(atk1Key) || player->WasInputKeyJustPressed(atk1_jKey))
@@ -1415,14 +1482,26 @@ void AMyPlayerCharacter::Listen4Attack(){
 					//myAnimBP->knockDown = knockDownIndex;
 
 					//start the attack
-					prepSuperHitL.myAnim->RateScale = prepSuperHitL.speed;
+					//prepSuperHitL.myAnim->RateScale = prepSuperHitL.speed;
 					UGameplayStatics::PlaySoundAtLocation(world, ChargeSlashL_iSFX, GetActorLocation(), SFXvolume);
-					myMesh->PlayAnimation(prepSuperHitL.myAnim, false);
+					//myMesh->PlayAnimation(prepSuperHitL.myAnim, false);
+					myAnimBP->attacking = true;
+					myAnimBP->PlaySlotAnimationAsDynamicMontage(
+						prepSuperHitL.myAnim,
+						"DefaultSlot",
+						playerTelegraph,
+						10.0f,
+						prepSuperHitL.speed,
+						1,
+						0.0f,
+						0.0f);
+
 					if (debugInfo)
 						GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("knockDownAtk started"));
 				}
 			}
 			if (mytime - startedHold1 > holdTimeMax) {
+				myAnimBP->attacking = false;
 				CancelKnockDownPrepare(true);
 			}
 		}
@@ -1435,16 +1514,27 @@ void AMyPlayerCharacter::Listen4Attack(){
 					//old way, with the animation blueprint
 					knockDownIndex = 1;
 					//myAnimBP->knockDown = knockDownIndex;
-
+					
 					//start the attack
-					prepSuperHitR.myAnim->RateScale = prepSuperHitR.speed;
+					//prepSuperHitR.myAnim->RateScale = prepSuperHitR.speed;
 					UGameplayStatics::PlaySoundAtLocation(world, ChargeSlashR_iSFX, GetActorLocation(), SFXvolume);
-					myMesh->PlayAnimation(prepSuperHitR.myAnim, false);
+					//myMesh->PlayAnimation(prepSuperHitR.myAnim, false);
+					myAnimBP->attacking = true;
+					myAnimBP->PlaySlotAnimationAsDynamicMontage(
+						prepSuperHitR.myAnim,
+						"DefaultSlot",
+						playerTelegraph,
+						10.0f,
+						prepSuperHitR.speed,
+						1,
+						0.0f,
+						0.0f);
 					if (debugInfo)
 						GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Blue, TEXT("knockDownAtk started"));
 				}
 			}
 			if (mytime - startedHold2 > holdTimeMax) {
+				myAnimBP->attacking = false;
 				CancelKnockDownPrepare(false);
 			}
 		}
@@ -1745,6 +1835,7 @@ void AMyPlayerCharacter::MyDamage(float DamagePower, bool KD, bool Spiral) {
 		myCharMove->MaxAcceleration = normalAcel;
 		myCharMove->AirControl = normalAirCtrl;
 		myCharMove->GravityScale = normalGravity;
+		arising = false;
 
 		if (Spiral) {
 			myAnimBP->damageIndex = 10;
@@ -1851,10 +1942,11 @@ void AMyPlayerCharacter::HookFail(){
 		GEngine->AddOnScreenDebugMessage(-1, msgTime, FColor::Yellow, "[player] hook Fail.");
 			
 	mystate = idle;
+	//idleTimer = back2idleTime;
 	myAnimBP->attackIndex = 0;
 	
 	//finish bringing hook back
-	Cast<UPrimitiveComponent>(hookComp)->SetPhysicsAngularVelocity(FVector::ZeroVector);
+	Cast<UPrimitiveComponent>(hookComp)->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
 	Cast<UPrimitiveComponent>(hookComp)->SetPhysicsLinearVelocity(FVector::ZeroVector);
 	hookComp->AttachToComponent(myMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, hookSocket);
 

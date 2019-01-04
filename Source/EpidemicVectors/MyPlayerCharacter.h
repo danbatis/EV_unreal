@@ -70,19 +70,19 @@ class EPIDEMICVECTORS_API AMyPlayerCharacter : public ACharacter
 public:
 
 	enum PlayerStates {
-		idle,
-		attacking,		
-		hookFlying,
-		hookThrown,
-		evading,
-		suffering,
-		kdTakeOff,
-		kdFlight,
-		kdGround,
-		kdRise,
-		grabbing,
-		hookThrowing,
-		hookAiming,
+		idle,			//0
+		attacking,		//1
+		hookFlying,		//2
+		hookThrown,		//3
+		evading,		//4
+		suffering,		//5
+		kdTakeOff,		//6
+		kdFlight,		//7
+		kdGround,		//8
+		kdRise,			//9
+		grabbing,		//10
+		hookThrowing,	//11
+		hookAiming,		//12
 	};	
 
 	// Sets default values for this character's properties
@@ -155,8 +155,8 @@ public:
 	bool mutationGrabbed;
 	
 	UPROPERTY(EditAnywhere, Category = Movement) float normalGravity=1.0f;
-	UPROPERTY(EditAnywhere, Category = Movement) float normalSpeed;
-	UPROPERTY(EditAnywhere, Category = Movement) float dashSpeed;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement) float normalSpeed;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Movement) float dashSpeed;
 	UPROPERTY(EditAnywhere, Category = Movement) float normalAcel;
 	UPROPERTY(EditAnywhere, Category = Movement) float dashAcel;
 
@@ -169,6 +169,8 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat) float dashAirCtrl;
 	//to instantiate new mosquitos
 	UPROPERTY(EditAnywhere, Category = Combat) TSubclassOf<class AMosquitoCharacter> MosquitoClass;
+	UPROPERTY(EditAnywhere, Category = Combat) bool invertJoystickY; 
+	UPROPERTY(EditAnywhere, Category = Combat) float joyTurnGain = 1.5f;
 	UPROPERTY(EditAnywhere, Category = Combat) bool lookInCamDir;
 	UPROPERTY(EditAnywhere, Category = Combat) bool lockTargetPersistent = false;
 	UPROPERTY(EditAnywhere, Category = Combat) float heightOffset_tgtLock = 100.0f;
@@ -200,7 +202,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float hitPause = 0.01f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) FName grabbingHandSocket = "vanq_LeftHand";
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) FName hookSocket = "vanq_LeftForeArm";
-		
+	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float back2idleTime = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Combat) float playerTelegraph = 0.1f;
+
 	//input buttons
 	UPROPERTY(EditAnywhere, Category = Combat) FKey atk1Key;//square
 	UPROPERTY(EditAnywhere, Category = Combat) FKey atk2Key;//triangle
@@ -217,6 +221,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat) FKey vertical_Down;
 	UPROPERTY(EditAnywhere, Category = Combat) FKey horizontalCam;
 	UPROPERTY(EditAnywhere, Category = Combat) FKey verticalCam;
+	UPROPERTY(EditAnywhere, Category = Combat) FKey quickTurnKey;
 	//joystick
 	UPROPERTY(EditAnywhere, Category = Combat) FKey atk1_jKey;//square
 	UPROPERTY(EditAnywhere, Category = Combat) FKey atk2_jKey;//triangle
@@ -230,6 +235,8 @@ public:
 	UPROPERTY(EditAnywhere, Category = Combat) FKey vertical_j;
 	UPROPERTY(EditAnywhere, Category = Combat) FKey horizontal_jCam;
 	UPROPERTY(EditAnywhere, Category = Combat) FKey vertical_jCam;
+	UPROPERTY(EditAnywhere, Category = Combat) FKey lookInCharDir_j;
+	UPROPERTY(EditAnywhere, Category = Combat) FKey quickTurn_j;
 	//knockdown animations
 	UPROPERTY(EditAnywhere, Category = Combat) FAtkNode prepSuperHitL;
 	UPROPERTY(EditAnywhere, Category = Combat) FAtkNode superHitL;
@@ -284,6 +291,7 @@ public:
 	FRotator YawRotation;
 	float vertIn;
 	float horIn;
+	int verticalJoyDir = 1;
 	FVector forthVec;
 	FVector rightVec;
 	FVector myVel;
@@ -292,6 +300,9 @@ public:
 	float grabForth;
 	float grabRight;
 	float grabHeight;	
+
+	//float idleTimer;
+	//FPoseSnapshot lastPose;
 
 	USceneComponent* swordComp;
 	USceneComponent* grabComp;
